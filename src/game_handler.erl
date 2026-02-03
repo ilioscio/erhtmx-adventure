@@ -31,7 +31,10 @@ init(Req0, State) ->
             %% URL decode and parse JSON
             try
                 Decoded = uri_string:percent_decode(EncodedState),
-                game_state:from_json(Decoded)
+                case game_state:from_json(Decoded) of
+                    {error, _} -> game_state:default_state();
+                    ValidState -> ValidState
+                end
             catch
                 _:_ -> game_state:default_state()
             end;

@@ -11,11 +11,12 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
 
-        # Erlang/OTP version
-        erlang = pkgs.erlang_27;
+        # Erlang/OTP version - use beam packages for proper integration
+        beamPkgs = pkgs.beam.packages.erlang_26;
+        erlang = beamPkgs.erlang;
 
-        # Rebar3 for building Erlang projects
-        rebar3 = pkgs.rebar3.override { erlang = erlang; };
+        # Rebar3 from beam packages
+        rebar3 = beamPkgs.rebar3;
 
       in {
         devShells.default = pkgs.mkShell {

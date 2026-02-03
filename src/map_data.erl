@@ -240,10 +240,14 @@ generate_enemies(Area, X, Y) ->
     Seed = erlang:phash2({Area, X, Y, enemies}),
     rand:seed(exsplus, {Seed, Seed * 2, Seed * 3}),
 
-    %% Starting room has no enemies
+    %% Special cases: starting room and dragon's lair
     case {Area, X, Y} of
         {training_grounds, 0, 0} ->
+            %% Starting room - no enemies
             [];
+        {dungeon, 3, 3} ->
+            %% Dragon's lair - only the dragon boss
+            [{<<"dragon_boss">>, dragon, 8, 6, 300}];
         _ ->
             NumEnemies = get_enemy_count(Area),
             [create_enemy(Area, X, Y, I) || I <- lists:seq(1, NumEnemies)]
@@ -308,8 +312,8 @@ get_locked_doors(castle, 2, 2) ->
     %% Castle inner room needs a key
     [{east, castle, 3, 2, <<"castle_key">>}];
 get_locked_doors(dungeon, 2, 3) ->
-    %% Dragon's lair needs final key
-    [{south, dungeon, 2, 3, <<"dragon_key">>}];
+    %% Dragon's lair needs final key (east leads to dragon)
+    [{east, dungeon, 3, 3, <<"dragon_key">>}];
 get_locked_doors(_, _, _) ->
     [].
 

@@ -54,14 +54,18 @@ init(Req0, State) ->
             JsonState = game_state:to_json(GameStateWithInit),
             EncodedState = uri_string:quote(JsonState),
 
-            %% Set cookie and redirect to game
+            %% Set cookie using proper cowboy function
+            Req2 = cowboy_req:set_resp_cookie(
+                <<"game_state">>,
+                EncodedState,
+                Req1,
+                #{path => <<"/">>, max_age => 31536000}
+            ),
+
+            %% Redirect to game
             Req = cowboy_req:reply(302, #{
-                <<"location">> => <<"/">>,
-                <<"set-cookie">> => iolist_to_binary([
-                    <<"game_state=">>, EncodedState,
-                    <<"; Path=/; Max-Age=31536000">>
-                ])
-            }, <<>>, Req1),
+                <<"location">> => <<"/">>
+            }, <<>>, Req2),
             {ok, Req, State}
     end.
 
