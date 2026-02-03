@@ -1,0 +1,16 @@
+{application, erhtmx_adventure,
+ [{description, "ERHTMX Adventure - Erlang + HTMX + Canvas RPG Game"},
+  {vsn, "0.1.0"},
+  {registered, []},
+  {mod, {erhtmx_adventure_app, []}},
+  {applications,
+   [kernel,
+    stdlib,
+    cowboy,
+    jsx
+   ]},
+  {env,[]},
+  {modules, []},
+  {licenses, ["MIT"]},
+  {links, []}
+ ]}.

@@ -1,0 +1,26 @@
+# Erlang/Rebar3
+_build/
+_checkouts/
+erl_crash.dump
+*.beam
+*.plt
+.rebar3/
+
+# Nix
+result
+result-*
+
+# Editor
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/

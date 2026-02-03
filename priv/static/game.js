@@ -1,0 +1,1492 @@
+/**
+ * ERHTMX Adventure - Game Engine
+ *
+ * This is the main JavaScript game engine that handles:
+ * - Canvas rendering (map tiles, player, enemies)
+ * - Player input and movement
+ * - Combat system with different weapon types
+ * - Enemy AI (chaotic movement like Link's Awakening)
+ * - Collision detection
+ * - Door/map transitions
+ * - State persistence via API calls
+ */
+
+// ============================================================
+// GAME CONSTANTS
+// ============================================================
+
+const TILE_SIZE = 40;
+const MAP_WIDTH = 16;
+const MAP_HEIGHT = 12;
+const CANVAS_WIDTH = 640;
+const CANVAS_HEIGHT = 480;
+
+// Tile types (matching Erlang map_data.erl)
+const TILE_FLOOR = 0;
+const TILE_WALL = 1;
+const TILE_WATER = 2;
+const TILE_DOOR = 3;
+const TILE_LOCKED_DOOR = 4;
+const TILE_CHEST = 5;
+const TILE_STAIRS_UP = 6;
+const TILE_STAIRS_DOWN = 7;
+
+// Player size and speed
+const PLAYER_SIZE = 32;
+const PLAYER_SPEED = 4;
+
+// Enemy constants
+const ENEMY_SIZE = 28;
+const ENEMY_SPEED = 2;
+
+// Colors
+const COLORS = {
+    floor: '#2a2a3a',
+    wall: '#4a4a5a',
+    water: '#1a3a5a',
+    door: '#5a4a2a',
+    lockedDoor: '#3a3a3a',
+    chest: '#8a6a2a',
+    chestOpen: '#5a4a2a',
+    stairsUp: '#3a5a3a',
+    stairsDown: '#5a3a3a',
+    player: '#00d9ff',
+    playerOutline: '#0088aa',
+    // Enemy colors by type
+    slime: '#44dd44',
+    skeleton: '#dddddd',
+    bat: '#8844dd',
+    demon: '#dd4444',
+    ghost: '#aaaadd',
+    spider: '#664422',
+    dragon: '#ff4400'
+};
+
+// ============================================================
+// GAME STATE
+// ============================================================
+
+let canvas, ctx;
+let gameState = {};
+let player = {};
+let enemies = [];
+let projectiles = [];
+let attacks = [];
+let mapTiles = [];
+let doors = [];
+let chests = [];
+let keysHeld = new Set();
+let lastTime = 0;
+let gameRunning = true;
+
+// Weapon cooldowns (milliseconds)
+const WEAPON_COOLDOWNS = {
+    sword: 400,
+    dagger: 200,
+    spear: 350,
+    bow: 500,
+    staff_fire: 600,
+    staff_lightning: 800,
+    staff_ice: 1000
+};
+
+// Weapon damage
+const WEAPON_DAMAGE = {
+    sword: 25,
+    dagger: 20,
+    spear: 18,
+    bow: 15,
+    staff_fire: 22,
+    staff_lightning: 8, // per hit, cone hits multiple times
+    staff_ice: 15
+};
+
+// ============================================================
+// INITIALIZATION
+// ============================================================
+
+/**
+ * Initialize the game when the page loads.
+ */
+window.addEventListener('load', () => {
+    canvas = document.getElementById('game-canvas');
+    ctx = canvas.getContext('2d');
+
+    // Load game state from server-provided data
+    loadGameState();
+
+    // Set up input handlers
+    setupInput();
+
+    // Start game loop
+    requestAnimationFrame(gameLoop);
+});
+
+/**
+ * Load initial game state from GAME_STATE global (set by server).
+ */
+function loadGameState() {
+    const gs = window.GAME_STATE;
+
+    gameState = {
+        playerName: gs.playerName,
+        playerClass: gs.playerClass,
+        hp: gs.hp,
+        maxHp: gs.maxHp,
+        area: gs.area,
+        mapX: gs.mapX,
+        mapY: gs.mapY,
+        inventory: gs.inventory || [],
+        keys: gs.keys || []
+    };
+
+    // Initialize player
+    player = {
+        x: gs.tileX * TILE_SIZE + TILE_SIZE / 2,
+        y: gs.tileY * TILE_SIZE + TILE_SIZE / 2,
+        direction: 'down',
+        weapon: gs.inventory[0] || 'sword',
+        weaponCooldown: 0,
+        invincible: 0, // Invincibility frames after being hit
+        knockback: { x: 0, y: 0, time: 0 }
+    };
+
+    // Load map data
+    mapTiles = gs.mapTiles || [];
+    doors = gs.doors || [];
+    chests = gs.chests || [];
+
+    // Initialize enemies (filter out killed ones)
+    const killedIds = new Set(gs.killedEnemies || []);
+    const openedChestIds = new Set(gs.openedChests || []);
+
+    enemies = (gs.enemies || [])
+        .filter(e => !killedIds.has(e.id))
+        .map(e => ({
+            id: e.id,
+            type: e.type,
+            x: e.x * TILE_SIZE + TILE_SIZE / 2,
+            y: e.y * TILE_SIZE + TILE_SIZE / 2,
+            hp: e.hp,
+            maxHp: e.hp,
+            direction: Math.random() * Math.PI * 2,
+            moveTimer: 0,
+            changeDir: 0
+        }));
+
+    // Mark opened chests
+    chests.forEach(chest => {
+        if (openedChestIds.has(chest.id)) {
+            chest.opened = true;
+        }
+    });
+}
+
+// ============================================================
+// INPUT HANDLING
+// ============================================================
+
+/**
+ * Set up keyboard input handlers.
+ */
+function setupInput() {
+    window.addEventListener('keydown', (e) => {
+        keysHeld.add(e.key.toLowerCase());
+
+        // Attack on space or Z
+        if (e.key === ' ' || e.key.toLowerCase() === 'z') {
+            attack();
+            e.preventDefault();
+        }
+
+        // Prevent arrow key scrolling
+        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+            e.preventDefault();
+        }
+    });
+
+    window.addEventListener('keyup', (e) => {
+        keysHeld.delete(e.key.toLowerCase());
+    });
+}
+
+/**
+ * Get movement direction from currently held keys.
+ */
+function getMovementInput() {
+    let dx = 0, dy = 0;
+
+    if (keysHeld.has('arrowup') || keysHeld.has('w')) dy = -1;
+    if (keysHeld.has('arrowdown') || keysHeld.has('s')) dy = 1;
+    if (keysHeld.has('arrowleft') || keysHeld.has('a')) dx = -1;
+    if (keysHeld.has('arrowright') || keysHeld.has('d')) dx = 1;
+
+    // Normalize diagonal movement
+    if (dx !== 0 && dy !== 0) {
+        dx *= 0.707;
+        dy *= 0.707;
+    }
+
+    return { dx, dy };
+}
+
+// ============================================================
+// GAME LOOP
+// ============================================================
+
+/**
+ * Main game loop - called every frame.
+ */
+function gameLoop(timestamp) {
+    const deltaTime = timestamp - lastTime;
+    lastTime = timestamp;
+
+    if (gameRunning) {
+        update(deltaTime);
+        render();
+    }
+
+    requestAnimationFrame(gameLoop);
+}
+
+/**
+ * Update game state.
+ */
+function update(deltaTime) {
+    // Update cooldowns
+    if (player.weaponCooldown > 0) {
+        player.weaponCooldown -= deltaTime;
+    }
+    if (player.invincible > 0) {
+        player.invincible -= deltaTime;
+    }
+
+    // Update knockback
+    if (player.knockback.time > 0) {
+        player.knockback.time -= deltaTime;
+        const kbFactor = player.knockback.time / 200;
+        player.x += player.knockback.x * kbFactor;
+        player.y += player.knockback.y * kbFactor;
+    } else {
+        // Normal player movement
+        updatePlayer(deltaTime);
+    }
+
+    // Update enemies
+    updateEnemies(deltaTime);
+
+    // Update projectiles
+    updateProjectiles(deltaTime);
+
+    // Update attacks (melee animations)
+    updateAttacks(deltaTime);
+
+    // Check collisions
+    checkCollisions();
+
+    // Check door/transition triggers
+    checkDoorTriggers();
+
+    // Check chest interactions
+    checkChestInteraction();
+}
+
+/**
+ * Update player position based on input.
+ */
+function updatePlayer(deltaTime) {
+    const input = getMovementInput();
+
+    if (input.dx !== 0 || input.dy !== 0) {
+        const newX = player.x + input.dx * PLAYER_SPEED;
+        const newY = player.y + input.dy * PLAYER_SPEED;
+
+        // Update direction
+        if (Math.abs(input.dx) > Math.abs(input.dy)) {
+            player.direction = input.dx > 0 ? 'right' : 'left';
+        } else {
+            player.direction = input.dy > 0 ? 'down' : 'up';
+        }
+
+        // Check collision and move
+        if (!checkTileCollision(newX, player.y, PLAYER_SIZE)) {
+            player.x = newX;
+        }
+        if (!checkTileCollision(player.x, newY, PLAYER_SIZE)) {
+            player.y = newY;
+        }
+
+        // Clamp to map bounds
+        player.x = Math.max(PLAYER_SIZE/2, Math.min(CANVAS_WIDTH - PLAYER_SIZE/2, player.x));
+        player.y = Math.max(PLAYER_SIZE/2, Math.min(CANVAS_HEIGHT - PLAYER_SIZE/2, player.y));
+    }
+}
+
+/**
+ * Update enemy positions and behavior.
+ * Enemies move chaotically like in Link's Awakening.
+ */
+function updateEnemies(deltaTime) {
+    enemies.forEach(enemy => {
+        enemy.moveTimer += deltaTime;
+        enemy.changeDir -= deltaTime;
+
+        // Change direction randomly
+        if (enemy.changeDir <= 0) {
+            enemy.direction = Math.random() * Math.PI * 2;
+            enemy.changeDir = 500 + Math.random() * 1000;
+        }
+
+        // Move in current direction
+        const speed = getEnemySpeed(enemy.type);
+        const newX = enemy.x + Math.cos(enemy.direction) * speed;
+        const newY = enemy.y + Math.sin(enemy.direction) * speed;
+
+        // Check collision and move
+        if (!checkTileCollision(newX, enemy.y, ENEMY_SIZE)) {
+            enemy.x = newX;
+        } else {
+            enemy.direction = Math.PI - enemy.direction; // Bounce
+        }
+
+        if (!checkTileCollision(enemy.x, newY, ENEMY_SIZE)) {
+            enemy.y = newY;
+        } else {
+            enemy.direction = -enemy.direction; // Bounce
+        }
+
+        // Clamp to walkable area
+        enemy.x = Math.max(TILE_SIZE + ENEMY_SIZE/2, Math.min(CANVAS_WIDTH - TILE_SIZE - ENEMY_SIZE/2, enemy.x));
+        enemy.y = Math.max(TILE_SIZE + ENEMY_SIZE/2, Math.min(CANVAS_HEIGHT - TILE_SIZE - ENEMY_SIZE/2, enemy.y));
+    });
+}
+
+/**
+ * Get speed for enemy type.
+ */
+function getEnemySpeed(type) {
+    switch (type) {
+        case 'bat': return 3;
+        case 'ghost': return 2.5;
+        case 'slime': return 1.5;
+        case 'skeleton': return 2;
+        case 'demon': return 2;
+        case 'spider': return 3;
+        case 'dragon': return 1;
+        default: return 2;
+    }
+}
+
+/**
+ * Update projectiles.
+ */
+function updateProjectiles(deltaTime) {
+    projectiles = projectiles.filter(proj => {
+        proj.x += proj.vx;
+        proj.y += proj.vy;
+        proj.lifetime -= deltaTime;
+
+        // Check if projectile hit a wall or is off screen
+        if (proj.lifetime <= 0 ||
+            proj.x < 0 || proj.x > CANVAS_WIDTH ||
+            proj.y < 0 || proj.y > CANVAS_HEIGHT ||
+            checkTileCollision(proj.x, proj.y, 8)) {
+            return false;
+        }
+
+        // Check enemy hits
+        enemies.forEach(enemy => {
+            const dist = Math.hypot(enemy.x - proj.x, enemy.y - proj.y);
+            if (dist < ENEMY_SIZE/2 + proj.size/2) {
+                damageEnemy(enemy, proj.damage);
+                proj.lifetime = 0; // Remove projectile
+            }
+        });
+
+        return proj.lifetime > 0;
+    });
+}
+
+/**
+ * Update attack animations (melee).
+ */
+function updateAttacks(deltaTime) {
+    attacks = attacks.filter(attack => {
+        attack.lifetime -= deltaTime;
+
+        // Check enemy hits during attack
+        if (!attack.hitEnemies) attack.hitEnemies = new Set();
+
+        enemies.forEach(enemy => {
+            if (attack.hitEnemies.has(enemy.id)) return;
+
+            if (isInAttackArea(attack, enemy.x, enemy.y)) {
+                damageEnemy(enemy, attack.damage);
+                attack.hitEnemies.add(enemy.id);
+            }
+        });
+
+        return attack.lifetime > 0;
+    });
+}
+
+/**
+ * Check if a point is in an attack area.
+ */
+function isInAttackArea(attack, x, y) {
+    switch (attack.type) {
+        case 'sword': {
+            // 90 degree arc in front
+            const dx = x - attack.x;
+            const dy = y - attack.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist > attack.range) return false;
+
+            const angle = Math.atan2(dy, dx);
+            const dirAngle = directionToAngle(attack.direction);
+            let diff = angle - dirAngle;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            return Math.abs(diff) < Math.PI / 4; // 90 degree arc
+        }
+
+        case 'dagger':
+        case 'spear': {
+            // Line poke
+            const dx = x - attack.x;
+            const dy = y - attack.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist > attack.range) return false;
+
+            const angle = Math.atan2(dy, dx);
+            const dirAngle = directionToAngle(attack.direction);
+            let diff = angle - dirAngle;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            return Math.abs(diff) < Math.PI / 8; // Narrow cone
+        }
+
+        case 'staff_ice': {
+            // Circle around player
+            const dist = Math.hypot(x - attack.x, y - attack.y);
+            return dist < attack.range;
+        }
+
+        case 'staff_lightning': {
+            // Cone in front
+            const dx = x - attack.x;
+            const dy = y - attack.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist > attack.range) return false;
+
+            const angle = Math.atan2(dy, dx);
+            const dirAngle = directionToAngle(attack.direction);
+            let diff = angle - dirAngle;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            return Math.abs(diff) < Math.PI / 3; // Wide cone
+        }
+
+        default:
+            return false;
+    }
+}
+
+/**
+ * Convert direction string to angle.
+ */
+function directionToAngle(dir) {
+    switch (dir) {
+        case 'right': return 0;
+        case 'down': return Math.PI / 2;
+        case 'left': return Math.PI;
+        case 'up': return -Math.PI / 2;
+        default: return 0;
+    }
+}
+
+/**
+ * Get direction offset for attacks/projectiles.
+ */
+function getDirectionOffset(dir) {
+    switch (dir) {
+        case 'right': return { x: 1, y: 0 };
+        case 'left': return { x: -1, y: 0 };
+        case 'down': return { x: 0, y: 1 };
+        case 'up': return { x: 0, y: -1 };
+        default: return { x: 0, y: 1 };
+    }
+}
+
+// ============================================================
+// COMBAT
+// ============================================================
+
+/**
+ * Perform an attack with the current weapon.
+ */
+function attack() {
+    if (player.weaponCooldown > 0) return;
+
+    const weapon = player.weapon;
+    const cooldown = WEAPON_COOLDOWNS[weapon] || 400;
+    const damage = WEAPON_DAMAGE[weapon] || 10;
+
+    player.weaponCooldown = cooldown;
+
+    const dir = getDirectionOffset(player.direction);
+
+    switch (weapon) {
+        case 'sword':
+            attacks.push({
+                type: 'sword',
+                x: player.x,
+                y: player.y,
+                direction: player.direction,
+                damage: damage,
+                range: 50,
+                lifetime: 200
+            });
+            break;
+
+        case 'dagger':
+            attacks.push({
+                type: 'dagger',
+                x: player.x + dir.x * 20,
+                y: player.y + dir.y * 20,
+                direction: player.direction,
+                damage: damage,
+                range: 30,
+                lifetime: 150
+            });
+            break;
+
+        case 'spear':
+            attacks.push({
+                type: 'spear',
+                x: player.x + dir.x * 30,
+                y: player.y + dir.y * 30,
+                direction: player.direction,
+                damage: damage,
+                range: 60,
+                lifetime: 200
+            });
+            break;
+
+        case 'bow':
+            projectiles.push({
+                type: 'arrow',
+                x: player.x + dir.x * 20,
+                y: player.y + dir.y * 20,
+                vx: dir.x * 10,
+                vy: dir.y * 10,
+                damage: damage,
+                size: 8,
+                lifetime: 1000
+            });
+            break;
+
+        case 'staff_fire':
+            projectiles.push({
+                type: 'fireball',
+                x: player.x + dir.x * 20,
+                y: player.y + dir.y * 20,
+                vx: dir.x * 7,
+                vy: dir.y * 7,
+                damage: damage,
+                size: 16,
+                lifetime: 1200
+            });
+            break;
+
+        case 'staff_lightning':
+            attacks.push({
+                type: 'staff_lightning',
+                x: player.x,
+                y: player.y,
+                direction: player.direction,
+                damage: damage,
+                range: 100,
+                lifetime: 300
+            });
+            break;
+
+        case 'staff_ice':
+            attacks.push({
+                type: 'staff_ice',
+                x: player.x,
+                y: player.y,
+                direction: player.direction,
+                damage: damage,
+                range: 70,
+                lifetime: 400
+            });
+            break;
+    }
+}
+
+/**
+ * Damage an enemy.
+ */
+function damageEnemy(enemy, damage) {
+    enemy.hp -= damage;
+
+    if (enemy.hp <= 0) {
+        // Enemy killed
+        killEnemy(enemy);
+    }
+}
+
+/**
+ * Remove enemy and update server state.
+ */
+function killEnemy(enemy) {
+    enemies = enemies.filter(e => e.id !== enemy.id);
+
+    // Notify server
+    fetch('/api/game', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            action: 'kill_enemy',
+            enemyId: enemy.id
+        })
+    });
+
+    // Check if dragon was killed
+    if (enemy.type === 'dragon') {
+        victory();
+    }
+}
+
+/**
+ * Damage the player.
+ */
+function damagePlayer(damage, fromX, fromY) {
+    if (player.invincible > 0) return;
+
+    gameState.hp -= damage;
+    player.invincible = 1000; // 1 second invincibility
+
+    // Knockback
+    const dx = player.x - fromX;
+    const dy = player.y - fromY;
+    const dist = Math.hypot(dx, dy);
+    player.knockback = {
+        x: (dx / dist) * 8,
+        y: (dy / dist) * 8,
+        time: 200
+    };
+
+    // Update UI
+    updateHpBar();
+
+    // Notify server
+    fetch('/api/game', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            action: 'take_damage',
+            damage: damage
+        })
+    });
+
+    if (gameState.hp <= 0) {
+        gameOver();
+    }
+}
+
+/**
+ * Check collision with tile map.
+ */
+function checkTileCollision(x, y, size) {
+    const halfSize = size / 2;
+
+    // Check corners of bounding box
+    const corners = [
+        { x: x - halfSize, y: y - halfSize },
+        { x: x + halfSize, y: y - halfSize },
+        { x: x - halfSize, y: y + halfSize },
+        { x: x + halfSize, y: y + halfSize }
+    ];
+
+    for (const corner of corners) {
+        const tileX = Math.floor(corner.x / TILE_SIZE);
+        const tileY = Math.floor(corner.y / TILE_SIZE);
+
+        if (tileX < 0 || tileX >= MAP_WIDTH || tileY < 0 || tileY >= MAP_HEIGHT) {
+            return true; // Out of bounds
+        }
+
+        const tile = mapTiles[tileY]?.[tileX];
+        if (tile === TILE_WALL || tile === TILE_WATER) {
+            return true;
+        }
+
+        // Locked doors block if we don't have the key
+        if (tile === TILE_LOCKED_DOOR) {
+            const door = doors.find(d => isDoorAtTile(d, tileX, tileY));
+            if (door && door.keyRequired && !gameState.keys.includes(door.keyRequired)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Check if a door is at a specific tile.
+ */
+function isDoorAtTile(door, tileX, tileY) {
+    switch (door.direction) {
+        case 'north': return tileY === 0 && tileX === 7;
+        case 'south': return tileY === MAP_HEIGHT - 1 && tileX === 7;
+        case 'west': return tileX === 0 && tileY === 5;
+        case 'east': return tileX === MAP_WIDTH - 1 && tileY === 5;
+    }
+    return false;
+}
+
+/**
+ * Check collisions between player and enemies.
+ */
+function checkCollisions() {
+    if (player.invincible > 0) return;
+
+    enemies.forEach(enemy => {
+        const dist = Math.hypot(enemy.x - player.x, enemy.y - player.y);
+        if (dist < (PLAYER_SIZE + ENEMY_SIZE) / 2) {
+            const damage = getEnemyDamage(enemy.type);
+            damagePlayer(damage, enemy.x, enemy.y);
+        }
+    });
+}
+
+/**
+ * Get damage dealt by enemy type.
+ */
+function getEnemyDamage(type) {
+    switch (type) {
+        case 'slime': return 5;
+        case 'bat': return 8;
+        case 'skeleton': return 12;
+        case 'ghost': return 10;
+        case 'demon': return 18;
+        case 'spider': return 10;
+        case 'dragon': return 25;
+        default: return 10;
+    }
+}
+
+// ============================================================
+// MAP TRANSITIONS
+// ============================================================
+
+/**
+ * Check if player triggered a door/transition.
+ */
+function checkDoorTriggers() {
+    const tileX = Math.floor(player.x / TILE_SIZE);
+    const tileY = Math.floor(player.y / TILE_SIZE);
+    const tile = mapTiles[tileY]?.[tileX];
+
+    // Check for door tiles at map edges
+    if (tile === TILE_DOOR || tile === TILE_LOCKED_DOOR) {
+        const door = doors.find(d => isDoorAtTile(d, tileX, tileY));
+        if (door) {
+            // Check if we have the key for locked doors
+            if (door.keyRequired && !gameState.keys.includes(door.keyRequired)) {
+                showMessage("You need a key to open this door!");
+                return;
+            }
+
+            transitionToMap(door.targetArea, door.targetX, door.targetY, door.direction);
+        }
+    }
+
+    // Check for stairs
+    if (tile === TILE_STAIRS_UP || tile === TILE_STAIRS_DOWN) {
+        // The transition info is included in the map data
+        // For now, trigger map load
+        if (tile === TILE_STAIRS_DOWN) {
+            transitionArea('down');
+        } else {
+            transitionArea('up');
+        }
+    }
+}
+
+/**
+ * Transition to a new map.
+ */
+function transitionToMap(area, mapX, mapY, fromDirection) {
+    // Determine player entry position
+    let entryX, entryY;
+    switch (fromDirection) {
+        case 'north':
+            entryX = 7 * TILE_SIZE + TILE_SIZE / 2;
+            entryY = (MAP_HEIGHT - 2) * TILE_SIZE + TILE_SIZE / 2;
+            break;
+        case 'south':
+            entryX = 7 * TILE_SIZE + TILE_SIZE / 2;
+            entryY = 1 * TILE_SIZE + TILE_SIZE / 2;
+            break;
+        case 'west':
+            entryX = (MAP_WIDTH - 2) * TILE_SIZE + TILE_SIZE / 2;
+            entryY = 5 * TILE_SIZE + TILE_SIZE / 2;
+            break;
+        case 'east':
+            entryX = 1 * TILE_SIZE + TILE_SIZE / 2;
+            entryY = 5 * TILE_SIZE + TILE_SIZE / 2;
+            break;
+        default:
+            entryX = 8 * TILE_SIZE + TILE_SIZE / 2;
+            entryY = 6 * TILE_SIZE + TILE_SIZE / 2;
+    }
+
+    // Update game state
+    gameState.area = area;
+    gameState.mapX = mapX;
+    gameState.mapY = mapY;
+
+    // Save to server and reload map
+    saveAndLoadMap(Math.floor(entryX / TILE_SIZE), Math.floor(entryY / TILE_SIZE));
+
+    // Update player position
+    player.x = entryX;
+    player.y = entryY;
+}
+
+/**
+ * Transition to a different area (stairs).
+ */
+function transitionArea(direction) {
+    let newArea, newX, newY;
+
+    if (direction === 'down') {
+        switch (gameState.area) {
+            case 'training_grounds':
+                newArea = 'castle';
+                newX = 0;
+                newY = 0;
+                break;
+            case 'castle':
+                newArea = 'dungeon';
+                newX = 0;
+                newY = 0;
+                break;
+            default:
+                return;
+        }
+    } else {
+        switch (gameState.area) {
+            case 'castle':
+                newArea = 'training_grounds';
+                newX = 3;
+                newY = 3;
+                break;
+            case 'dungeon':
+                newArea = 'castle';
+                newX = 3;
+                newY = 3;
+                break;
+            default:
+                return;
+        }
+    }
+
+    gameState.area = newArea;
+    gameState.mapX = newX;
+    gameState.mapY = newY;
+
+    saveAndLoadMap(8, 6);
+    player.x = 8 * TILE_SIZE + TILE_SIZE / 2;
+    player.y = 6 * TILE_SIZE + TILE_SIZE / 2;
+}
+
+/**
+ * Save state to server and load new map data.
+ */
+function saveAndLoadMap(entryTileX, entryTileY) {
+    // Save state
+    fetch('/api/game', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            action: 'move_map',
+            area: gameState.area,
+            mapX: gameState.mapX,
+            mapY: gameState.mapY,
+            tileX: entryTileX,
+            tileY: entryTileY
+        })
+    });
+
+    // Load new map
+    fetch(`/api/map/${gameState.area}/${gameState.mapX}/${gameState.mapY}`)
+        .then(res => res.json())
+        .then(data => {
+            mapTiles = data.tiles;
+            doors = data.doors;
+            chests = data.chests;
+
+            // Load enemies
+            enemies = data.enemies.map(e => ({
+                id: e.id,
+                type: e.type,
+                x: e.x * TILE_SIZE + TILE_SIZE / 2,
+                y: e.y * TILE_SIZE + TILE_SIZE / 2,
+                hp: e.hp,
+                maxHp: e.maxHp,
+                direction: Math.random() * Math.PI * 2,
+                moveTimer: 0,
+                changeDir: 0
+            }));
+
+            // Clear projectiles and attacks
+            projectiles = [];
+            attacks = [];
+
+            // Update location display
+            updateLocationDisplay();
+        });
+}
+
+// ============================================================
+// CHESTS
+// ============================================================
+
+/**
+ * Check if player is interacting with a chest.
+ */
+function checkChestInteraction() {
+    if (!keysHeld.has('e') && !keysHeld.has('enter')) return;
+
+    chests.forEach(chest => {
+        if (chest.opened) return;
+
+        const chestX = chest.x * TILE_SIZE + TILE_SIZE / 2;
+        const chestY = chest.y * TILE_SIZE + TILE_SIZE / 2;
+        const dist = Math.hypot(chestX - player.x, chestY - player.y);
+
+        if (dist < TILE_SIZE * 1.5) {
+            // Check if all enemies are dead
+            if (enemies.length > 0) {
+                showMessage("Defeat all enemies first!");
+                return;
+            }
+
+            openChest(chest);
+        }
+    });
+}
+
+/**
+ * Open a chest and collect its contents.
+ */
+function openChest(chest) {
+    chest.opened = true;
+
+    const contents = chest.contents;
+    if (contents.type === 'key') {
+        gameState.keys.push(contents.id);
+        showMessage(`Got ${formatKeyName(contents.id)}!`);
+
+        fetch('/api/game', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'add_key',
+                key: contents.id
+            })
+        });
+    } else if (contents.type === 'item') {
+        gameState.inventory.push(contents.id);
+        showMessage(`Got ${formatItemName(contents.id)}!`);
+        updateInventoryDisplay();
+
+        fetch('/api/game', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'add_item',
+                item: contents.id
+            })
+        });
+    }
+
+    // Mark chest as opened on server
+    fetch('/api/game', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            action: 'open_chest',
+            chestId: chest.id
+        })
+    });
+}
+
+/**
+ * Format key name for display.
+ */
+function formatKeyName(keyId) {
+    return keyId.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+/**
+ * Format item name for display.
+ */
+function formatItemName(itemId) {
+    const names = {
+        'sword': 'Sword',
+        'dagger': 'Dagger',
+        'spear': 'Spear',
+        'bow': 'Bow',
+        'staff_fire': 'Fire Staff',
+        'staff_lightning': 'Lightning Staff',
+        'staff_ice': 'Ice Staff',
+        'health_potion': 'Health Potion'
+    };
+    return names[itemId] || itemId;
+}
+
+// ============================================================
+// RENDERING
+// ============================================================
+
+/**
+ * Render the game.
+ */
+function render() {
+    // Clear canvas
+    ctx.fillStyle = '#0a0a15';
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    // Draw map tiles
+    renderMap();
+
+    // Draw chests
+    renderChests();
+
+    // Draw enemies
+    renderEnemies();
+
+    // Draw player
+    renderPlayer();
+
+    // Draw projectiles
+    renderProjectiles();
+
+    // Draw attacks
+    renderAttacks();
+}
+
+/**
+ * Render the tile map.
+ */
+function renderMap() {
+    for (let y = 0; y < MAP_HEIGHT; y++) {
+        for (let x = 0; x < MAP_WIDTH; x++) {
+            const tile = mapTiles[y]?.[x] ?? 0;
+
+            ctx.fillStyle = getTileColor(tile);
+            ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+
+            // Draw tile borders for walls
+            if (tile === TILE_WALL) {
+                ctx.strokeStyle = '#5a5a6a';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x * TILE_SIZE + 1, y * TILE_SIZE + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+            }
+        }
+    }
+}
+
+/**
+ * Get color for a tile type.
+ */
+function getTileColor(tile) {
+    switch (tile) {
+        case TILE_FLOOR: return COLORS.floor;
+        case TILE_WALL: return COLORS.wall;
+        case TILE_WATER: return COLORS.water;
+        case TILE_DOOR: return COLORS.door;
+        case TILE_LOCKED_DOOR: return COLORS.lockedDoor;
+        case TILE_CHEST: return COLORS.floor; // Chest drawn separately
+        case TILE_STAIRS_UP: return COLORS.stairsUp;
+        case TILE_STAIRS_DOWN: return COLORS.stairsDown;
+        default: return COLORS.floor;
+    }
+}
+
+/**
+ * Render chests.
+ */
+function renderChests() {
+    chests.forEach(chest => {
+        const x = chest.x * TILE_SIZE;
+        const y = chest.y * TILE_SIZE;
+
+        ctx.fillStyle = chest.opened ? COLORS.chestOpen : COLORS.chest;
+        ctx.fillRect(x + 8, y + 12, TILE_SIZE - 16, TILE_SIZE - 20);
+
+        // Chest lid
+        ctx.fillStyle = chest.opened ? '#4a3a1a' : '#9a7a3a';
+        ctx.fillRect(x + 6, y + 8, TILE_SIZE - 12, 8);
+
+        // Lock (if closed)
+        if (!chest.opened) {
+            ctx.fillStyle = '#ffcc00';
+            ctx.fillRect(x + TILE_SIZE/2 - 3, y + 20, 6, 8);
+        }
+    });
+}
+
+/**
+ * Render enemies.
+ */
+function renderEnemies() {
+    enemies.forEach(enemy => {
+        ctx.fillStyle = COLORS[enemy.type] || '#ff0000';
+
+        // Draw enemy shape based on type
+        ctx.beginPath();
+        switch (enemy.type) {
+            case 'slime':
+                // Blob shape
+                ctx.ellipse(enemy.x, enemy.y + 4, ENEMY_SIZE/2, ENEMY_SIZE/2 - 4, 0, 0, Math.PI * 2);
+                break;
+            case 'bat':
+                // Diamond shape
+                ctx.moveTo(enemy.x, enemy.y - ENEMY_SIZE/2);
+                ctx.lineTo(enemy.x + ENEMY_SIZE/2, enemy.y);
+                ctx.lineTo(enemy.x, enemy.y + ENEMY_SIZE/2);
+                ctx.lineTo(enemy.x - ENEMY_SIZE/2, enemy.y);
+                break;
+            case 'dragon':
+                // Large triangle
+                ctx.moveTo(enemy.x, enemy.y - ENEMY_SIZE);
+                ctx.lineTo(enemy.x + ENEMY_SIZE, enemy.y + ENEMY_SIZE/2);
+                ctx.lineTo(enemy.x - ENEMY_SIZE, enemy.y + ENEMY_SIZE/2);
+                break;
+            default:
+                // Circle
+                ctx.arc(enemy.x, enemy.y, ENEMY_SIZE/2, 0, Math.PI * 2);
+        }
+        ctx.fill();
+
+        // Draw HP bar
+        const hpPercent = enemy.hp / enemy.maxHp;
+        ctx.fillStyle = '#333';
+        ctx.fillRect(enemy.x - 15, enemy.y - ENEMY_SIZE/2 - 8, 30, 4);
+        ctx.fillStyle = hpPercent > 0.5 ? '#4a4' : (hpPercent > 0.25 ? '#aa4' : '#a44');
+        ctx.fillRect(enemy.x - 15, enemy.y - ENEMY_SIZE/2 - 8, 30 * hpPercent, 4);
+    });
+}
+
+/**
+ * Render the player.
+ */
+function renderPlayer() {
+    // Flash when invincible
+    if (player.invincible > 0 && Math.floor(player.invincible / 100) % 2) {
+        return;
+    }
+
+    ctx.fillStyle = COLORS.player;
+    ctx.strokeStyle = COLORS.playerOutline;
+    ctx.lineWidth = 2;
+
+    // Draw player as circle
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, PLAYER_SIZE/2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Draw direction indicator
+    const dir = getDirectionOffset(player.direction);
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(player.x + dir.x * 10, player.y + dir.y * 10, 5, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+/**
+ * Render projectiles.
+ */
+function renderProjectiles() {
+    projectiles.forEach(proj => {
+        switch (proj.type) {
+            case 'arrow':
+                ctx.fillStyle = '#8b4513';
+                ctx.beginPath();
+                ctx.arc(proj.x, proj.y, proj.size/2, 0, Math.PI * 2);
+                ctx.fill();
+                break;
+            case 'fireball':
+                ctx.fillStyle = '#ff4400';
+                ctx.beginPath();
+                ctx.arc(proj.x, proj.y, proj.size/2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#ffaa00';
+                ctx.beginPath();
+                ctx.arc(proj.x, proj.y, proj.size/3, 0, Math.PI * 2);
+                ctx.fill();
+                break;
+        }
+    });
+}
+
+/**
+ * Render attack animations.
+ */
+function renderAttacks() {
+    attacks.forEach(attack => {
+        const alpha = attack.lifetime / 400;
+
+        switch (attack.type) {
+            case 'sword': {
+                // 90 degree arc
+                ctx.strokeStyle = `rgba(200, 200, 255, ${alpha})`;
+                ctx.lineWidth = 6;
+                const angle = directionToAngle(attack.direction);
+                ctx.beginPath();
+                ctx.arc(attack.x, attack.y, attack.range, angle - Math.PI/4, angle + Math.PI/4);
+                ctx.stroke();
+                break;
+            }
+            case 'dagger':
+            case 'spear': {
+                // Line poke
+                ctx.strokeStyle = `rgba(200, 200, 200, ${alpha})`;
+                ctx.lineWidth = attack.type === 'spear' ? 4 : 3;
+                const dir = getDirectionOffset(attack.direction);
+                ctx.beginPath();
+                ctx.moveTo(attack.x, attack.y);
+                ctx.lineTo(attack.x + dir.x * attack.range, attack.y + dir.y * attack.range);
+                ctx.stroke();
+                break;
+            }
+            case 'staff_ice': {
+                // Circle around player
+                ctx.strokeStyle = `rgba(100, 200, 255, ${alpha})`;
+                ctx.lineWidth = 8;
+                ctx.beginPath();
+                ctx.arc(attack.x, attack.y, attack.range, 0, Math.PI * 2);
+                ctx.stroke();
+                break;
+            }
+            case 'staff_lightning': {
+                // Cone effect
+                ctx.fillStyle = `rgba(255, 255, 100, ${alpha * 0.5})`;
+                const angle = directionToAngle(attack.direction);
+                ctx.beginPath();
+                ctx.moveTo(attack.x, attack.y);
+                ctx.arc(attack.x, attack.y, attack.range, angle - Math.PI/3, angle + Math.PI/3);
+                ctx.closePath();
+                ctx.fill();
+                break;
+            }
+        }
+    });
+}
+
+// ============================================================
+// UI UPDATES
+// ============================================================
+
+/**
+ * Update the HP bar display.
+ */
+function updateHpBar() {
+    const hpBar = document.querySelector('.hp-bar');
+    const hpText = document.querySelector('.hp-text');
+
+    if (hpBar && hpText) {
+        const percent = Math.max(0, (gameState.hp / gameState.maxHp) * 100);
+        hpBar.style.width = percent + '%';
+        hpText.textContent = `${Math.max(0, gameState.hp)} / ${gameState.maxHp}`;
+    }
+}
+
+/**
+ * Update the location display.
+ */
+function updateLocationDisplay() {
+    const areaName = document.querySelector('.area-name');
+    const mapPos = document.querySelector('.map-pos');
+
+    if (areaName) {
+        const names = {
+            'training_grounds': 'Training Grounds',
+            'castle': 'The Castle',
+            'dungeon': 'The Dungeon'
+        };
+        areaName.textContent = names[gameState.area] || gameState.area;
+    }
+
+    if (mapPos) {
+        mapPos.textContent = `Map: ${gameState.mapX + 1}, ${gameState.mapY + 1}`;
+    }
+}
+
+/**
+ * Update inventory display.
+ */
+function updateInventoryDisplay() {
+    const slots = document.querySelectorAll('.inventory-slot');
+    const icons = {
+        'sword': '⚔',
+        'dagger': '🗡',
+        'spear': '➳',
+        'bow': '🏹',
+        'staff_fire': '🔥',
+        'staff_lightning': '⚡',
+        'staff_ice': '❄',
+        'health_potion': '🧪'
+    };
+    const names = {
+        'sword': 'Sword',
+        'dagger': 'Dagger',
+        'spear': 'Spear',
+        'bow': 'Bow',
+        'staff_fire': 'Fire Staff',
+        'staff_lightning': 'Lightning Staff',
+        'staff_ice': 'Ice Staff',
+        'health_potion': 'Health Potion'
+    };
+
+    slots.forEach((slot, index) => {
+        const item = gameState.inventory[index];
+        const iconEl = slot.querySelector('.item-icon');
+        const nameEl = slot.querySelector('.item-name');
+
+        if (item) {
+            slot.classList.add('filled');
+            slot.classList.remove('empty');
+            if (iconEl) iconEl.textContent = icons[item] || '?';
+            if (nameEl) nameEl.textContent = names[item] || item;
+        } else {
+            slot.classList.remove('filled');
+            slot.classList.add('empty');
+            if (iconEl) iconEl.textContent = '';
+            if (nameEl) nameEl.textContent = '';
+        }
+    });
+}
+
+/**
+ * Show a message to the player.
+ */
+function showMessage(text) {
+    const display = document.getElementById('message-display');
+    if (display) {
+        display.textContent = text;
+        display.classList.add('show');
+
+        setTimeout(() => {
+            display.classList.remove('show');
+        }, 2000);
+    }
+}
+
+// ============================================================
+// GAME END CONDITIONS
+// ============================================================
+
+/**
+ * Handle game over (player death).
+ */
+function gameOver() {
+    gameRunning = false;
+
+    // Create overlay
+    const overlay = document.createElement('div');
+    overlay.id = 'game-overlay';
+    overlay.className = 'show defeat';
+    overlay.innerHTML = `
+        <h2>GAME OVER</h2>
+        <p>You have been defeated...</p>
+        <button onclick="location.href='/create'">New Character</button>
+        <button onclick="location.reload()">Try Again</button>
+    `;
+
+    document.getElementById('game-container').appendChild(overlay);
+}
+
+/**
+ * Handle victory (dragon defeated).
+ */
+function victory() {
+    gameRunning = false;
+
+    // Notify server
+    fetch('/api/game', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'defeat_dragon' })
+    });
+
+    // Create overlay
+    const overlay = document.createElement('div');
+    overlay.id = 'game-overlay';
+    overlay.className = 'show victory';
+    overlay.innerHTML = `
+        <h2>VICTORY!</h2>
+        <p>You have defeated the dragon and saved the realm!</p>
+        <button onclick="location.href='/create'">New Adventure</button>
+    `;
+
+    document.getElementById('game-container').appendChild(overlay);
+}
+
+// ============================================================
+// INVENTORY SELECTION
+// ============================================================
+
+// Add click handlers to inventory slots
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.inventory-slot').forEach((slot, index) => {
+        slot.addEventListener('click', () => {
+            const item = gameState.inventory[index];
+            if (item && isWeapon(item)) {
+                player.weapon = item;
+
+                // Update selection visual
+                document.querySelectorAll('.inventory-slot').forEach(s => s.classList.remove('selected'));
+                slot.classList.add('selected');
+
+                showMessage(`Equipped ${formatItemName(item)}`);
+            } else if (item === 'health_potion') {
+                // Use health potion
+                gameState.hp = Math.min(gameState.maxHp, gameState.hp + 30);
+                gameState.inventory.splice(index, 1);
+                updateHpBar();
+                updateInventoryDisplay();
+                showMessage('Used Health Potion (+30 HP)');
+
+                // Save to server
+                fetch('/api/game', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'heal',
+                        amount: 30
+                    })
+                });
+            }
+        });
+    });
+
+    // Select first slot by default
+    const firstSlot = document.querySelector('.inventory-slot');
+    if (firstSlot) firstSlot.classList.add('selected');
+});
+
+/**
+ * Check if an item is a weapon.
+ */
+function isWeapon(item) {
+    return ['sword', 'dagger', 'spear', 'bow', 'staff_fire', 'staff_lightning', 'staff_ice'].includes(item);
+}
