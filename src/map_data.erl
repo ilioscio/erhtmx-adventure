@@ -92,14 +92,14 @@ get_chests(Area, X, Y) ->
 %%--------------------------------------------------------------------
 get_area_transition(Area, X, Y) ->
     case {Area, X, Y} of
-        %% Training grounds (3,3) has stairs to castle
-        {training_grounds, 3, 3} -> {stairs_down, castle, 0, 0};
-        %% Castle (3,3) has stairs to dungeon
-        {castle, 3, 3} -> {stairs_down, dungeon, 0, 0};
-        %% Castle (0,0) has stairs back to training grounds
-        {castle, 0, 0} -> {stairs_up, training_grounds, 3, 3};
-        %% Dungeon (0,0) has stairs back to castle
-        {dungeon, 0, 0} -> {stairs_up, castle, 3, 3};
+        %% Training grounds (2,3) has stairs to castle - bottom center-left
+        {training_grounds, 2, 3} -> {stairs_down, castle, 1, 0};
+        %% Castle (3,2) has stairs to dungeon - right side
+        {castle, 3, 2} -> {stairs_down, dungeon, 0, 1};
+        %% Castle (1,0) has stairs back to training grounds - different location
+        {castle, 1, 0} -> {stairs_up, training_grounds, 2, 3};
+        %% Dungeon (0,1) has stairs back to castle
+        {dungeon, 0, 1} -> {stairs_up, castle, 3, 2};
         _ -> none
     end.
 
@@ -163,28 +163,63 @@ add_training_walls(Map, X, Y) ->
             %% Add a few pillars
             add_pillars(Map, [{4, 4}, {11, 4}, {4, 7}, {11, 7}]);
         _ ->
-            %% Random simple obstacles
+            %% Random simple obstacles, avoiding spawn points
             NumPillars = rand:uniform(3),
-            Positions = [{rand:uniform(12) + 1, rand:uniform(8) + 1} || _ <- lists:seq(1, NumPillars)],
+            Positions = generate_safe_positions(NumPillars),
             add_pillars(Map, Positions)
     end.
 
+%% Generate pillar positions that don't block spawn points
+generate_safe_positions(Num) ->
+    %% Safe spawn zones to avoid:
+    %% - Center: (7,5) to (9,7) - general spawn area
+    %% - North door entry: around (7, 10)
+    %% - South door entry: around (7, 1)
+    %% - West door entry: around (14, 5)
+    %% - East door entry: around (1, 5)
+    SafeZones = [
+        {6, 4, 10, 8},   % Center spawn area
+        {6, 9, 9, 11},   % North door entry
+        {6, 1, 9, 3},    % South door entry
+        {1, 4, 3, 7},    % East door entry
+        {12, 4, 15, 7}   % West door entry
+    ],
+    generate_safe_positions(Num, SafeZones, []).
+
+generate_safe_positions(0, _, Acc) ->
+    Acc;
+generate_safe_positions(Num, SafeZones, Acc) ->
+    X = rand:uniform(12) + 1,
+    Y = rand:uniform(8) + 1,
+    case is_in_safe_zone(X, Y, SafeZones) of
+        true ->
+            %% Try again
+            generate_safe_positions(Num, SafeZones, Acc);
+        false ->
+            generate_safe_positions(Num - 1, SafeZones, [{X, Y} | Acc])
+    end.
+
+is_in_safe_zone(X, Y, SafeZones) ->
+    lists:any(fun({X1, Y1, X2, Y2}) ->
+        X >= X1 andalso X =< X2 andalso Y >= Y1 andalso Y =< Y2
+    end, SafeZones).
+
 add_castle_walls(Map, _X, _Y) ->
     %% Castle has room-like structures
-    %% Add some internal walls
+    %% Add some internal walls - positioned away from spawn zones
     Walls = [
-        {5, 3}, {5, 4}, {5, 5},
-        {10, 6}, {10, 7}, {10, 8}
+        {4, 3}, {4, 4},
+        {11, 7}, {11, 8}
     ],
     add_pillars(Map, Walls).
 
 add_dungeon_walls(Map, _X, _Y) ->
-    %% Dungeon has more complex layouts
+    %% Dungeon has more complex layouts - positioned away from spawn zones
     Walls = [
-        {3, 3}, {3, 4}, {4, 3},
-        {11, 3}, {12, 3}, {12, 4},
-        {3, 8}, {4, 8}, {3, 7},
-        {11, 8}, {12, 8}, {12, 7}
+        {3, 3}, {3, 4},
+        {12, 3}, {12, 4},
+        {3, 8}, {3, 9},
+        {12, 8}, {12, 9}
     ],
     add_pillars(Map, Walls).
 
@@ -249,22 +284,23 @@ generate_enemies(Area, X, Y) ->
             %% Dragon's lair - only the dragon boss
             [{<<"dragon_boss">>, dragon, 8, 6, 300}];
         _ ->
+            %% Get the map to check for valid spawn positions
+            MapTiles = generate_map(Area, X, Y),
             NumEnemies = get_enemy_count(Area),
-            [create_enemy(Area, X, Y, I) || I <- lists:seq(1, NumEnemies)]
+            [create_enemy(Area, X, Y, I, MapTiles) || I <- lists:seq(1, NumEnemies)]
     end.
 
 get_enemy_count(training_grounds) -> rand:uniform(2) + 1;
 get_enemy_count(castle) -> rand:uniform(3) + 2;
 get_enemy_count(dungeon) -> rand:uniform(4) + 3.
 
-create_enemy(Area, MapX, MapY, Index) ->
+create_enemy(Area, MapX, MapY, Index, MapTiles) ->
     %% Enemy ID is unique per map
     Id = list_to_binary(io_lib:format("enemy_~s_~p_~p_~p",
         [Area, MapX, MapY, Index])),
 
-    %% Position (avoid edges and center)
-    EX = rand:uniform(10) + 2,
-    EY = rand:uniform(6) + 2,
+    %% Find a valid position (not a wall, water, or special tile)
+    {EX, EY} = find_valid_enemy_position(MapTiles, 20),
 
     %% Enemy type and HP based on area
     {Type, HP} = case Area of
@@ -284,6 +320,27 @@ create_enemy(Area, MapX, MapY, Index) ->
     end,
 
     {Id, Type, EX, EY, HP}.
+
+%% Find a valid position for enemy spawn (floor tiles only)
+find_valid_enemy_position(MapTiles, AttemptsLeft) when AttemptsLeft > 0 ->
+    %% Try random position avoiding edges
+    EX = rand:uniform(10) + 2,
+    EY = rand:uniform(6) + 2,
+    %% Check if position is a floor tile (type 0)
+    case get_tile(MapTiles, EX, EY) of
+        0 -> {EX, EY};  % Floor tile, valid position
+        _ -> find_valid_enemy_position(MapTiles, AttemptsLeft - 1)
+    end;
+find_valid_enemy_position(_, _) ->
+    %% Fallback to center if no valid position found
+    {8, 6}.
+
+%% Get tile at position
+get_tile(MapTiles, X, Y) when X >= 0, X < ?MAP_WIDTH, Y >= 0, Y < ?MAP_HEIGHT ->
+    Row = lists:nth(Y + 1, MapTiles),
+    lists:nth(X + 1, Row);
+get_tile(_, _, _) ->
+    1.  % Out of bounds = wall
 
 %%--------------------------------------------------------------------
 %% Generate doors connecting maps

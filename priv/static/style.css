@@ -20,11 +20,27 @@ body {
 /* Game Container */
 #game-container {
     position: relative;
-    width: 640px;
+    width: 648px; /* 640px canvas + 4px border on each side */
     background-color: #16213e;
     border: 4px solid #0f3460;
     border-radius: 8px;
     padding: 60px 0;
+}
+
+/* Area-specific container themes */
+#game-container.area-training_grounds {
+    background-color: #1a2a1a;
+    border-color: #2a4a2a;
+}
+
+#game-container.area-castle {
+    background-color: #1a1a2e;
+    border-color: #2a2a5e;
+}
+
+#game-container.area-dungeon {
+    background-color: #1a0a0a;
+    border-color: #4a1a1a;
 }
 
 /* Canvas */
@@ -42,6 +58,22 @@ body {
     border-radius: 6px;
     padding: 8px 12px;
     box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.3);
+}
+
+/* Area-specific info box themes */
+.area-training_grounds .info-box {
+    background: linear-gradient(135deg, #1a2a1a 0%, #2a3a2a 100%);
+    border-color: #3a5a3a;
+}
+
+.area-castle .info-box {
+    background: linear-gradient(135deg, #1a1a2e 0%, #2a2a4e 100%);
+    border-color: #3a3a6a;
+}
+
+.area-dungeon .info-box {
+    background: linear-gradient(135deg, #1a0a0a 0%, #2a1a1a 100%);
+    border-color: #5a2a2a;
 }
 
 /* Character Bar (Top Left) */
@@ -110,6 +142,19 @@ body {
     font-size: 14px;
     font-weight: bold;
     color: #00d9ff;
+}
+
+/* Area-specific location name colors */
+.area-training_grounds .area-name {
+    color: #5aff5a; /* Green for nature */
+}
+
+.area-castle .area-name {
+    color: #5a9aff; /* Royal blue */
+}
+
+.area-dungeon .area-name {
+    color: #ff5a5a; /* Danger red */
 }
 
 .map-pos {
@@ -397,4 +442,73 @@ body {
 
 #game-overlay button:hover {
     background: linear-gradient(135deg, #16213e 0%, #0f3460 100%);
+}
+
+/* Pause Menu */
+#pause-menu {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.8);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+}
+
+#pause-menu.show {
+    display: flex;
+}
+
+#pause-menu h2 {
+    font-size: 36px;
+    color: #00d9ff;
+    margin-bottom: 30px;
+    text-transform: uppercase;
+    letter-spacing: 4px;
+}
+
+#pause-menu .menu-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+#pause-menu button {
+    padding: 14px 40px;
+    background: linear-gradient(135deg, #0f3460 0%, #16213e 100%);
+    border: 2px solid #00d9ff;
+    border-radius: 6px;
+    color: #fff;
+    font-family: inherit;
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-width: 200px;
+}
+
+#pause-menu button:hover {
+    background: linear-gradient(135deg, #16213e 0%, #0f3460 100%);
+    transform: scale(1.05);
+}
+
+#pause-menu button.resume-btn {
+    border-color: #4aff4a;
+}
+
+#pause-menu button.restart-btn {
+    border-color: #ffaa00;
+}
+
+#pause-menu button.quit-btn {
+    border-color: #e94560;
+}
+
+#pause-menu .pause-hint {
+    margin-top: 30px;
+    font-size: 12px;
+    color: #666;
 }

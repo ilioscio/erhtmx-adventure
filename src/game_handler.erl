@@ -116,7 +116,7 @@ render_game_page(GameState) ->
     <link rel=\"stylesheet\" href=\"/static/style.css\">
 </head>
 <body>
-    <div id=\"game-container\">
+    <div id=\"game-container\" class=\"area-">>, atom_to_binary(Area, utf8), <<"\">
         <!-- Character Info Bar (Top Left) -->
         <div id=\"character-bar\">
             <div class=\"info-box\">
@@ -150,6 +150,17 @@ render_game_page(GameState) ->
 
         <!-- Message Display -->
         <div id=\"message-display\"></div>
+
+        <!-- Pause Menu -->
+        <div id=\"pause-menu\">
+            <h2>Paused</h2>
+            <div class=\"menu-buttons\">
+                <button class=\"resume-btn\" onclick=\"resumeGame()\">Resume</button>
+                <button class=\"restart-btn\" onclick=\"restartGame()\">Restart</button>
+                <button class=\"quit-btn\" onclick=\"quitGame()\">Quit</button>
+            </div>
+            <p class=\"pause-hint\">Press P or ESC to resume</p>
+        </div>
     </div>
 
     <!-- Game State (passed to JavaScript) -->

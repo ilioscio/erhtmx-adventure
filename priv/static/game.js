@@ -39,19 +39,65 @@ const PLAYER_SPEED = 4;
 const ENEMY_SIZE = 28;
 const ENEMY_SPEED = 2;
 
-// Colors
-const COLORS = {
-    floor: '#2a2a3a',
-    wall: '#4a4a5a',
-    water: '#1a3a5a',
-    door: '#5a4a2a',
-    lockedDoor: '#3a3a3a',
+// ITERATION 4: VERY DISTINCT color palettes - impossible to miss the difference
+// Each area now has DRAMATICALLY different colors that are immediately obvious
+const AREA_PALETTES = {
+    training_grounds: {
+        // BRIGHT GREEN nature theme - like a forest clearing
+        floor: '#1a5520',       // Vibrant grass green floor
+        wall: '#3a6830',        // Leafy green walls
+        water: '#104838',       // Deep forest pond
+        door: '#5a4020',        // Wooden door
+        lockedDoor: '#3a3020',  // Dark wood
+        chest: '#908040',       // Brass/gold
+        chestOpen: '#6a5030',   // Open wood
+        stairsUp: '#2a6830',    // Bright moss
+        stairsDown: '#185018',  // Dark forest
+        background: '#0a2008'   // Very dark green background
+    },
+    castle: {
+        // BRIGHT BLUE royal theme - like a stone castle
+        floor: '#202850',       // Deep blue stone floor
+        wall: '#3a4a78',        // Blue stone walls
+        water: '#1a3068',       // Royal blue moat
+        door: '#4050a0',        // Blue door
+        lockedDoor: '#303060',  // Iron blue door
+        chest: '#5070c0',       // Silver-blue chest
+        chestOpen: '#405090',   // Open blue stone
+        stairsUp: '#3a5090',    // Blue-gray up
+        stairsDown: '#202848',  // Dark blue down
+        background: '#080818'   // Very dark blue background
+    },
+    dungeon: {
+        // BRIGHT RED danger theme - like a volcanic dungeon
+        floor: '#501010',       // Blood red floor
+        wall: '#702020',        // Crimson walls
+        water: '#401028',       // Purple lava
+        door: '#602018',        // Rusted iron door
+        lockedDoor: '#401010',  // Dark rusted iron
+        chest: '#806020',       // Corroded brass
+        chestOpen: '#604018',   // Opened dark brass
+        stairsUp: '#504020',    // Escape (tan)
+        stairsDown: '#681010',  // Deeper red danger
+        background: '#180404'   // Very dark red background
+    }
+};
+
+// Default colors - initialized to training_grounds and will be overridden by updateAreaPalette()
+// ITERATION 4: Match default to training_grounds so colors work even before init
+let COLORS = {
+    floor: '#1a5520',       // Training grounds green
+    wall: '#3a6830',
+    water: '#104838',
+    door: '#5a4020',
+    lockedDoor: '#3a3020',
     chest: '#8a6a2a',
     chestOpen: '#5a4a2a',
     stairsUp: '#3a5a3a',
     stairsDown: '#5a3a3a',
     player: '#00d9ff',
     playerOutline: '#0088aa',
+    background: '#0a0a15',
     // Enemy colors by type
     slime: '#44dd44',
     skeleton: '#dddddd',
@@ -61,6 +107,63 @@ const COLORS = {
     spider: '#664422',
     dragon: '#ff4400'
 };
+
+/**
+ * Update color palette based on current area.
+ */
+function updateAreaPalette() {
+    // Get the area name, ensuring it's a valid key
+    const areaKey = gameState.area || 'training_grounds';
+
+    // Debug: log the area being used
+    console.log('Updating area palette for:', areaKey);
+
+    // Get palette for area (fallback to training_grounds)
+    const palette = AREA_PALETTES[areaKey];
+    if (!palette) {
+        console.warn('No palette found for area:', areaKey, '- using training_grounds');
+    }
+    const selectedPalette = palette || AREA_PALETTES.training_grounds;
+
+    // Completely replace COLORS with the new palette while preserving non-palette colors
+    // Store non-palette colors that should persist
+    const preservedColors = {
+        player: COLORS.player,
+        playerOutline: COLORS.playerOutline,
+        slime: COLORS.slime,
+        skeleton: COLORS.skeleton,
+        bat: COLORS.bat,
+        demon: COLORS.demon,
+        ghost: COLORS.ghost,
+        spider: COLORS.spider,
+        dragon: COLORS.dragon
+    };
+
+    // Apply the area palette
+    COLORS.floor = selectedPalette.floor;
+    COLORS.wall = selectedPalette.wall;
+    COLORS.water = selectedPalette.water;
+    COLORS.door = selectedPalette.door;
+    COLORS.lockedDoor = selectedPalette.lockedDoor;
+    COLORS.chest = selectedPalette.chest;
+    COLORS.chestOpen = selectedPalette.chestOpen;
+    COLORS.stairsUp = selectedPalette.stairsUp;
+    COLORS.stairsDown = selectedPalette.stairsDown;
+    COLORS.background = selectedPalette.background;
+
+    // Restore preserved colors
+    Object.assign(COLORS, preservedColors);
+
+    // Update game container class for CSS theming
+    const container = document.getElementById('game-container');
+    if (container) {
+        // Remove all area classes
+        container.classList.remove('area-training_grounds', 'area-castle', 'area-dungeon');
+        // Add current area class
+        container.classList.add('area-' + areaKey);
+        console.log('Container classes:', container.className);
+    }
+}
 
 // ============================================================
 // GAME STATE
@@ -78,6 +181,9 @@ let chests = [];
 let keysHeld = new Set();
 let lastTime = 0;
 let gameRunning = true;
+let transitioning = false; // Flag to prevent updates during map transitions
+let gamePaused = false; // Flag for pause menu
+let stairsTransitionCooldown = 0; // Cooldown to prevent instant re-trigger on stairs
 
 // Weapon cooldowns (milliseconds)
 const WEAPON_COOLDOWNS = {
@@ -140,6 +246,9 @@ function loadGameState() {
         keys: gs.keys || []
     };
 
+    // Update color palette for current area
+    updateAreaPalette();
+
     // Initialize player
     player = {
         x: gs.tileX * TILE_SIZE + TILE_SIZE / 2,
@@ -156,12 +265,19 @@ function loadGameState() {
     doors = gs.doors || [];
     chests = gs.chests || [];
 
-    // Initialize enemies (filter out killed ones)
+    // Initialize enemies (filter out killed ones and those in walls)
     const killedIds = new Set(gs.killedEnemies || []);
     const openedChestIds = new Set(gs.openedChests || []);
 
     enemies = (gs.enemies || [])
-        .filter(e => !killedIds.has(e.id))
+        .filter(e => {
+            // Filter out killed enemies
+            if (killedIds.has(e.id)) return false;
+            // Filter out enemies in walls
+            const tile = mapTiles[e.y]?.[e.x];
+            if (tile === TILE_WALL || tile === TILE_WATER) return false;
+            return true;
+        })
         .map(e => ({
             id: e.id,
             type: e.type,
@@ -193,6 +309,18 @@ function setupInput() {
     window.addEventListener('keydown', (e) => {
         keysHeld.add(e.key.toLowerCase());
 
+        // Toggle pause menu on Escape or P key
+        if (e.key === 'Escape' || e.key.toLowerCase() === 'p') {
+            togglePauseMenu();
+            e.preventDefault();
+            return;
+        }
+
+        // Don't process other inputs when paused
+        if (gamePaused) {
+            return;
+        }
+
         // Attack on space or Z
         if (e.key === ' ' || e.key.toLowerCase() === 'z') {
             attack();
@@ -208,6 +336,44 @@ function setupInput() {
     window.addEventListener('keyup', (e) => {
         keysHeld.delete(e.key.toLowerCase());
     });
+}
+
+/**
+ * Toggle the pause menu.
+ */
+function togglePauseMenu() {
+    if (!gameRunning) return; // Don't pause if game is over
+
+    gamePaused = !gamePaused;
+    const pauseMenu = document.getElementById('pause-menu');
+
+    if (gamePaused) {
+        pauseMenu.classList.add('show');
+    } else {
+        pauseMenu.classList.remove('show');
+    }
+}
+
+/**
+ * Resume the game from pause menu.
+ */
+function resumeGame() {
+    gamePaused = false;
+    document.getElementById('pause-menu').classList.remove('show');
+}
+
+/**
+ * Restart the game (reload with current character).
+ */
+function restartGame() {
+    location.reload();
+}
+
+/**
+ * Quit to character creation.
+ */
+function quitGame() {
+    location.href = '/create';
 }
 
 /**
@@ -241,12 +407,29 @@ function gameLoop(timestamp) {
     const deltaTime = timestamp - lastTime;
     lastTime = timestamp;
 
-    if (gameRunning) {
+    if (gameRunning && !transitioning && !gamePaused) {
         update(deltaTime);
         render();
+    } else if (transitioning) {
+        // During transition, just render a loading state
+        renderTransition();
+    } else if (gamePaused) {
+        render(); // Still render the game behind the pause menu
     }
 
     requestAnimationFrame(gameLoop);
+}
+
+/**
+ * Render transition screen.
+ */
+function renderTransition() {
+    ctx.fillStyle = '#0a0a15';
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillStyle = '#fff';
+    ctx.font = '20px Courier New';
+    ctx.textAlign = 'center';
+    ctx.fillText('Loading...', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
 }
 
 /**
@@ -260,13 +443,95 @@ function update(deltaTime) {
     if (player.invincible > 0) {
         player.invincible -= deltaTime;
     }
+    if (stairsTransitionCooldown > 0) {
+        stairsTransitionCooldown -= deltaTime;
+    }
 
-    // Update knockback
+    // ITERATION 4: Completely rewritten knockback system
+    // The key insight is that we should NEVER allow ANY movement that results
+    // in collision. Instead of applying velocity and checking after, we
+    // pre-compute the SAFE position and teleport there instantly.
     if (player.knockback.time > 0) {
         player.knockback.time -= deltaTime;
-        const kbFactor = player.knockback.time / 200;
-        player.x += player.knockback.x * kbFactor;
-        player.y += player.knockback.y * kbFactor;
+
+        // Store original position BEFORE any changes
+        const originalX = player.x;
+        const originalY = player.y;
+
+        // Calculate desired knockback movement this frame
+        const kbDecay = Math.max(0, player.knockback.time / 200);
+        const desiredMoveX = player.knockback.x * kbDecay * 0.25; // Reduced multiplier
+        const desiredMoveY = player.knockback.y * kbDecay * 0.25;
+
+        // Only process if movement is significant
+        if (Math.abs(desiredMoveX) > 0.05 || Math.abs(desiredMoveY) > 0.05) {
+            // Use FULL hitbox for collision (no shortcuts)
+            const hitboxSize = PLAYER_SIZE;
+
+            // Calculate target position
+            let targetX = player.x + desiredMoveX;
+            let targetY = player.y + desiredMoveY;
+
+            // Test in VERY small increments (1 pixel at a time)
+            const totalDist = Math.hypot(desiredMoveX, desiredMoveY);
+            const numSteps = Math.max(1, Math.ceil(totalDist));
+
+            // Track valid position as we move
+            let lastSafeX = player.x;
+            let lastSafeY = player.y;
+
+            for (let step = 1; step <= numSteps; step++) {
+                const progress = step / numSteps;
+                const testX = player.x + desiredMoveX * progress;
+                const testY = player.y + desiredMoveY * progress;
+
+                // Check if this position is safe
+                if (!checkTileCollision(testX, testY, hitboxSize)) {
+                    lastSafeX = testX;
+                    lastSafeY = testY;
+                } else {
+                    // Hit a wall - stop here and cancel knockback in this direction
+                    if (Math.abs(testX - player.x) > Math.abs(testY - player.y)) {
+                        player.knockback.x = 0; // Cancel X knockback
+                    } else {
+                        player.knockback.y = 0; // Cancel Y knockback
+                    }
+                    // Stop moving
+                    break;
+                }
+            }
+
+            // Move to last safe position
+            player.x = lastSafeX;
+            player.y = lastSafeY;
+
+            // CRITICAL: Verify final position is actually safe
+            if (checkTileCollision(player.x, player.y, hitboxSize)) {
+                // This should NEVER happen, but if it does, emergency rollback
+                console.error('EMERGENCY: Knockback resulted in wall collision! Rolling back.');
+                player.x = originalX;
+                player.y = originalY;
+                player.knockback.time = 0;
+                player.knockback.x = 0;
+                player.knockback.y = 0;
+            }
+        }
+
+        // Clamp to SAFE map bounds (inner walkable area only)
+        // Map borders are ALWAYS walls, so stay well inside
+        const safeMargin = TILE_SIZE + PLAYER_SIZE / 2 + 4;
+        const minSafeX = safeMargin;
+        const maxSafeX = CANVAS_WIDTH - safeMargin;
+        const minSafeY = safeMargin;
+        const maxSafeY = CANVAS_HEIGHT - safeMargin;
+
+        player.x = Math.max(minSafeX, Math.min(maxSafeX, player.x));
+        player.y = Math.max(minSafeY, Math.min(maxSafeY, player.y));
+
+        // Final safety net - if STILL in wall, push out
+        if (checkTileCollision(player.x, player.y, PLAYER_SIZE)) {
+            pushOutOfWalls();
+        }
     } else {
         // Normal player movement
         updatePlayer(deltaTime);
@@ -289,6 +554,56 @@ function update(deltaTime) {
 
     // Check chest interactions
     checkChestInteraction();
+
+    // Final safety check - ALWAYS ensure player isn't stuck in a wall
+    // This runs every frame as a failsafe against any edge case
+    ensurePlayerNotInWall();
+}
+
+/**
+ * Final safety check - ensures player is never stuck in a wall.
+ * Runs every frame as a failsafe.
+ *
+ * ITERATION 4: More aggressive check - uses FULL hitbox
+ */
+function ensurePlayerNotInWall() {
+    // Check if player is currently colliding with a wall
+    // Use FULL hitbox size - no compromises
+    if (checkTileCollision(player.x, player.y, PLAYER_SIZE)) {
+        console.warn('Player in wall detected at', player.x, player.y, '- rescuing');
+
+        // Player is stuck! Push them out immediately
+        pushOutOfWalls();
+
+        // Also cancel any ongoing knockback to prevent re-entry
+        player.knockback.time = 0;
+        player.knockback.x = 0;
+        player.knockback.y = 0;
+
+        // Double-check we're actually out
+        if (checkTileCollision(player.x, player.y, PLAYER_SIZE)) {
+            console.error('pushOutOfWalls failed! Emergency teleport to map center');
+            // Emergency: teleport to center of map
+            player.x = 8 * TILE_SIZE + TILE_SIZE / 2;
+            player.y = 6 * TILE_SIZE + TILE_SIZE / 2;
+
+            // If center is ALSO blocked (rare), scan for ANY safe tile
+            if (checkTileCollision(player.x, player.y, PLAYER_SIZE)) {
+                for (let y = 2; y < MAP_HEIGHT - 2; y++) {
+                    for (let x = 2; x < MAP_WIDTH - 2; x++) {
+                        const testX = x * TILE_SIZE + TILE_SIZE / 2;
+                        const testY = y * TILE_SIZE + TILE_SIZE / 2;
+                        if (!checkTileCollision(testX, testY, PLAYER_SIZE)) {
+                            player.x = testX;
+                            player.y = testY;
+                            console.log('Emergency rescue to tile', x, y);
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 /**
@@ -668,13 +983,76 @@ function damagePlayer(damage, fromX, fromY) {
     gameState.hp -= damage;
     player.invincible = 1000; // 1 second invincibility
 
-    // Knockback
+    // Calculate knockback direction
     const dx = player.x - fromX;
     const dy = player.y - fromY;
     const dist = Math.hypot(dx, dy);
+
+    // Determine knockback velocity (normalized direction * knockback strength)
+    // Reduced strength for better control
+    let kbX = (dx / dist) * 5;
+    let kbY = (dy / dist) * 5;
+
+    // Pre-validate knockback direction - test the FULL knockback range
+    // Test multiple points along the knockback path to ensure safety
+    const maxKnockbackDist = 25; // Maximum distance player could be knocked
+
+    // Test knockback path in multiple steps
+    let validKbX = kbX;
+    let validKbY = kbY;
+
+    for (let testDist = 5; testDist <= maxKnockbackDist; testDist += 5) {
+        const testX = player.x + (kbX / 5) * testDist;
+        const testY = player.y + (kbY / 5) * testDist;
+
+        // Check X direction
+        if (validKbX !== 0 && checkTileCollision(testX, player.y, PLAYER_SIZE - 4)) {
+            validKbX = 0;
+        }
+
+        // Check Y direction
+        if (validKbY !== 0 && checkTileCollision(player.x, testY, PLAYER_SIZE - 4)) {
+            validKbY = 0;
+        }
+
+        // Check diagonal
+        if (validKbX !== 0 && validKbY !== 0 && checkTileCollision(testX, testY, PLAYER_SIZE - 4)) {
+            // Prefer canceling the smaller component
+            if (Math.abs(validKbX) < Math.abs(validKbY)) {
+                validKbX = 0;
+            } else {
+                validKbY = 0;
+            }
+        }
+    }
+
+    kbX = validKbX;
+    kbY = validKbY;
+
+    // If both directions blocked, try to find a safe direction with minimal knockback
+    if (kbX === 0 && kbY === 0) {
+        // Try to find a safe direction - check all 8 directions
+        const safeDirections = [
+            { x: 1, y: 0 }, { x: -1, y: 0 },
+            { x: 0, y: 1 }, { x: 0, y: -1 },
+            { x: 0.7, y: 0.7 }, { x: -0.7, y: 0.7 },
+            { x: 0.7, y: -0.7 }, { x: -0.7, y: -0.7 }
+        ];
+        for (const dir of safeDirections) {
+            const testDist = 15;
+            const safeX = player.x + dir.x * testDist;
+            const safeY = player.y + dir.y * testDist;
+            if (!checkTileCollision(safeX, safeY, PLAYER_SIZE - 4)) {
+                kbX = dir.x * 3;
+                kbY = dir.y * 3;
+                break;
+            }
+        }
+    }
+
     player.knockback = {
-        x: (dx / dist) * 8,
-        y: (dy / dist) * 8,
+        x: kbX,
+        y: kbY,
         time: 200
     };
 
@@ -733,6 +1111,144 @@ function checkTileCollision(x, y, size) {
     }
 
     return false;
+}
+
+/**
+ * Push player out of walls if they somehow got stuck.
+ * Uses multiple strategies to find a valid position:
+ * 1. Try small pixel adjustments (for minor clipping)
+ * 2. Try 8 cardinal/diagonal directions
+ * 3. Use spiral search for worst cases
+ */
+function pushOutOfWalls() {
+    // If player is not colliding, nothing to do
+    if (!checkTileCollision(player.x, player.y, PLAYER_SIZE - 2)) {
+        return;
+    }
+
+    console.log('Player stuck in wall at', player.x, player.y, '- attempting rescue');
+
+    // Strategy 1: Try small pixel adjustments (fixes minor clipping)
+    // Test increasingly larger offsets in all 8 directions
+    const offsetDistances = [4, 8, 12, 16, 20];
+    const directions8 = [
+        { x: -1, y: 0 }, { x: 1, y: 0 },
+        { x: 0, y: -1 }, { x: 0, y: 1 },
+        { x: -0.707, y: -0.707 }, { x: 0.707, y: -0.707 },
+        { x: -0.707, y: 0.707 }, { x: 0.707, y: 0.707 }
+    ];
+
+    for (const dist of offsetDistances) {
+        for (const dir of directions8) {
+            const testX = player.x + dir.x * dist;
+            const testY = player.y + dir.y * dist;
+            if (!checkTileCollision(testX, testY, PLAYER_SIZE - 4)) {
+                player.x = testX;
+                player.y = testY;
+                console.log('Rescued with pixel offset:', dist, dir);
+                return;
+            }
+        }
+    }
+
+    // Strategy 2: Try moving to adjacent tiles in 8 directions
+    const currentTileX = Math.floor(player.x / TILE_SIZE);
+    const currentTileY = Math.floor(player.y / TILE_SIZE);
+
+    const directions = [
+        { dx: -1, dy: 0 }, { dx: 1, dy: 0 },
+        { dx: 0, dy: -1 }, { dx: 0, dy: 1 },
+        { dx: -1, dy: -1 }, { dx: 1, dy: -1 },
+        { dx: -1, dy: 1 }, { dx: 1, dy: 1 }
+    ];
+
+    for (const dir of directions) {
+        const tileX = currentTileX + dir.dx;
+        const tileY = currentTileY + dir.dy;
+
+        // Check bounds
+        if (tileX < 1 || tileX >= MAP_WIDTH - 1 || tileY < 1 || tileY >= MAP_HEIGHT - 1) {
+            continue;
+        }
+
+        // Check if this tile is walkable
+        const tile = mapTiles[tileY]?.[tileX];
+        if (tile === TILE_FLOOR || tile === TILE_DOOR || tile === TILE_STAIRS_UP || tile === TILE_STAIRS_DOWN) {
+            // Position player at center of this tile
+            const newX = tileX * TILE_SIZE + TILE_SIZE / 2;
+            const newY = tileY * TILE_SIZE + TILE_SIZE / 2;
+
+            // Final validation
+            if (!checkTileCollision(newX, newY, PLAYER_SIZE - 2)) {
+                player.x = newX;
+                player.y = newY;
+                console.log('Rescued to adjacent tile:', tileX, tileY);
+                return;
+            }
+        }
+    }
+
+    // Strategy 3: Spiral search for valid position (worst case)
+    const maxRadius = 5;
+
+    for (let radius = 2; radius <= maxRadius; radius++) {
+        // Check all tiles at this radius
+        for (let dy = -radius; dy <= radius; dy++) {
+            for (let dx = -radius; dx <= radius; dx++) {
+                // Only check tiles on the perimeter of this radius
+                if (Math.abs(dx) !== radius && Math.abs(dy) !== radius) continue;
+
+                const tileX = currentTileX + dx;
+                const tileY = currentTileY + dy;
+
+                // Check bounds
+                if (tileX < 1 || tileX >= MAP_WIDTH - 1 || tileY < 1 || tileY >= MAP_HEIGHT - 1) {
+                    continue;
+                }
+
+                // Check if this tile is walkable
+                const tile = mapTiles[tileY]?.[tileX];
+                if (tile === TILE_FLOOR || tile === TILE_DOOR || tile === TILE_STAIRS_UP || tile === TILE_STAIRS_DOWN) {
+                    // Position player at center of this tile
+                    const newX = tileX * TILE_SIZE + TILE_SIZE / 2;
+                    const newY = tileY * TILE_SIZE + TILE_SIZE / 2;
+
+                    // Final validation
+                    if (!checkTileCollision(newX, newY, PLAYER_SIZE - 2)) {
+                        player.x = newX;
+                        player.y = newY;
+                        console.log('Rescued with spiral search at radius', radius);
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback: teleport to map center if all else fails
+    console.log('Using fallback: teleporting to map center');
+    player.x = 8 * TILE_SIZE + TILE_SIZE / 2;
+    player.y = 6 * TILE_SIZE + TILE_SIZE / 2;
+
+    // Verify the fallback position is safe
+    if (checkTileCollision(player.x, player.y, PLAYER_SIZE - 2)) {
+        // Even the center is blocked! Find ANY walkable tile
+        for (let y = 1; y < MAP_HEIGHT - 1; y++) {
+            for (let x = 1; x < MAP_WIDTH - 1; x++) {
+                const tile = mapTiles[y]?.[x];
+                if (tile === TILE_FLOOR || tile === TILE_DOOR) {
+                    const testX = x * TILE_SIZE + TILE_SIZE / 2;
+                    const testY = y * TILE_SIZE + TILE_SIZE / 2;
+                    if (!checkTileCollision(testX, testY, PLAYER_SIZE - 2)) {
+                        player.x = testX;
+                        player.y = testY;
+                        console.log('Emergency rescue to tile:', x, y);
+                        return;
+                    }
+                }
+            }
+        }
+    }
 }
 
 /**
@@ -805,8 +1321,8 @@ function checkDoorTriggers() {
         }
     }
 
-    // Check for stairs
-    if (tile === TILE_STAIRS_UP || tile === TILE_STAIRS_DOWN) {
+    // Check for stairs (with cooldown to prevent instant re-trigger)
+    if ((tile === TILE_STAIRS_UP || tile === TILE_STAIRS_DOWN) && stairsTransitionCooldown <= 0) {
         // The transition info is included in the map data
         // For now, trigger map load
         if (tile === TILE_STAIRS_DOWN) {
@@ -850,6 +1366,9 @@ function transitionToMap(area, mapX, mapY, fromDirection) {
     gameState.mapX = mapX;
     gameState.mapY = mapY;
 
+    // Update area palette immediately
+    updateAreaPalette();
+
     // Save to server and reload map
     saveAndLoadMap(Math.floor(entryX / TILE_SIZE), Math.floor(entryY / TILE_SIZE));
 
@@ -868,13 +1387,13 @@ function transitionArea(direction) {
         switch (gameState.area) {
             case 'training_grounds':
                 newArea = 'castle';
-                newX = 0;
+                newX = 1;
                 newY = 0;
                 break;
             case 'castle':
                 newArea = 'dungeon';
                 newX = 0;
-                newY = 0;
+                newY = 1;
                 break;
             default:
                 return;
@@ -883,13 +1402,13 @@ function transitionArea(direction) {
         switch (gameState.area) {
             case 'castle':
                 newArea = 'training_grounds';
-                newX = 3;
+                newX = 2;
                 newY = 3;
                 break;
             case 'dungeon':
                 newArea = 'castle';
                 newX = 3;
-                newY = 3;
+                newY = 2;
                 break;
             default:
                 return;
@@ -900,8 +1419,16 @@ function transitionArea(direction) {
     gameState.mapX = newX;
     gameState.mapY = newY;
 
-    saveAndLoadMap(8, 6);
-    player.x = 8 * TILE_SIZE + TILE_SIZE / 2;
+    // Update area palette immediately for the transition screen
+    updateAreaPalette();
+
+    // Set cooldown to prevent instant re-trigger when arriving on destination stairs
+    stairsTransitionCooldown = 1000; // 1 second cooldown
+
+    // Position player slightly offset from stairs (tile 7,6 instead of 8,6)
+    // This prevents immediate re-transition
+    saveAndLoadMap(7, 6);
+    player.x = 7 * TILE_SIZE + TILE_SIZE / 2;
     player.y = 6 * TILE_SIZE + TILE_SIZE / 2;
 }
 
@@ -909,6 +1436,9 @@ function transitionArea(direction) {
  * Save state to server and load new map data.
  */
 function saveAndLoadMap(entryTileX, entryTileY) {
+    // Set transitioning flag to prevent updates during load
+    transitioning = true;
+
     // Save state
     fetch('/api/game', {
         method: 'POST',
@@ -931,18 +1461,35 @@ function saveAndLoadMap(entryTileX, entryTileY) {
             doors = data.doors;
             chests = data.chests;
 
-            // Load enemies
-            enemies = data.enemies.map(e => ({
-                id: e.id,
-                type: e.type,
-                x: e.x * TILE_SIZE + TILE_SIZE / 2,
-                y: e.y * TILE_SIZE + TILE_SIZE / 2,
-                hp: e.hp,
-                maxHp: e.maxHp,
-                direction: Math.random() * Math.PI * 2,
-                moveTimer: 0,
-                changeDir: 0
-            }));
+            // Calculate player position
+            const playerX = entryTileX * TILE_SIZE + TILE_SIZE / 2;
+            const playerY = entryTileY * TILE_SIZE + TILE_SIZE / 2;
+
+            // Load enemies, filtering out any that would spawn too close to the player or in walls
+            const minSpawnDistance = TILE_SIZE * 2; // Enemies must be at least 2 tiles away
+            enemies = data.enemies
+                .filter(e => {
+                    const enemyX = e.x * TILE_SIZE + TILE_SIZE / 2;
+                    const enemyY = e.y * TILE_SIZE + TILE_SIZE / 2;
+                    const dist = Math.hypot(enemyX - playerX, enemyY - playerY);
+                    // Check distance from player
+                    if (dist < minSpawnDistance) return false;
+                    // Check if enemy would spawn in a wall
+                    const tile = mapTiles[e.y]?.[e.x];
+                    if (tile === TILE_WALL || tile === TILE_WATER) return false;
+                    return true;
+                })
+                .map(e => ({
+                    id: e.id,
+                    type: e.type,
+                    x: e.x * TILE_SIZE + TILE_SIZE / 2,
+                    y: e.y * TILE_SIZE + TILE_SIZE / 2,
+                    hp: e.hp,
+                    maxHp: e.maxHp,
+                    direction: Math.random() * Math.PI * 2,
+                    moveTimer: 0,
+                    changeDir: 0
+                }));
 
             // Clear projectiles and attacks
             projectiles = [];
@@ -950,6 +1497,14 @@ function saveAndLoadMap(entryTileX, entryTileY) {
 
             // Update location display
             updateLocationDisplay();
+
+            // Update color palette for the area
+            updateAreaPalette();
+
+            // Brief delay before resuming gameplay to prevent visual glitches
+            setTimeout(() => {
+                transitioning = false;
+            }, 100);
         });
 }
 
@@ -1059,8 +1614,8 @@ function formatItemName(itemId) {
  * Render the game.
  */
 function render() {
-    // Clear canvas
-    ctx.fillStyle = '#0a0a15';
+    // Clear canvas with area-specific background color
+    ctx.fillStyle = COLORS.background || '#0a0a15';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
     // Draw map tiles
@@ -1093,14 +1648,26 @@ function renderMap() {
             ctx.fillStyle = getTileColor(tile);
             ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
 
-            // Draw tile borders for walls
+            // Draw tile borders for walls - use a lighter shade of the wall color
             if (tile === TILE_WALL) {
-                ctx.strokeStyle = '#5a5a6a';
+                ctx.strokeStyle = lightenColor(COLORS.wall, 20);
                 ctx.lineWidth = 2;
                 ctx.strokeRect(x * TILE_SIZE + 1, y * TILE_SIZE + 1, TILE_SIZE - 2, TILE_SIZE - 2);
             }
         }
     }
+}
+
+/**
+ * Lighten a hex color by a percentage.
+ */
+function lightenColor(color, percent) {
+    const num = parseInt(color.replace('#', ''), 16);
+    const amt = Math.round(2.55 * percent);
+    const R = Math.min(255, (num >> 16) + amt);
+    const G = Math.min(255, ((num >> 8) & 0x00FF) + amt);
+    const B = Math.min(255, (num & 0x0000FF) + amt);
+    return '#' + (0x1000000 + R * 0x10000 + G * 0x100 + B).toString(16).slice(1);
 }
 
 /**
@@ -1144,45 +1711,603 @@ function renderChests() {
 }
 
 /**
+ * Get emoji for enemy type.
+ */
+function getEnemyEmoji(type) {
+    switch (type) {
+        case 'slime': return '🟢';      // Green circle for slime blob
+        case 'bat': return '🦇';        // Bat
+        case 'skeleton': return '💀';   // Skull for skeleton
+        case 'ghost': return '👻';      // Ghost
+        case 'demon': return '👿';      // Imp/demon
+        case 'spider': return '🕷️';     // Spider
+        case 'dragon': return '🐉';     // Dragon
+        default: return '👾';           // Generic enemy
+    }
+}
+
+// Flag to track if emoji rendering works (detected once at startup)
+let emojiRenderingSupported = null;
+
+/**
+ * Check if the browser/system can render emojis properly as COLOR emojis.
+ * Uses MULTIPLE tests to ensure emojis render as proper colorful images,
+ * not as monochrome circles or text glyphs.
+ *
+ * ITERATION 4 FIX: Much stricter emoji detection
+ * - Tests multiple emojis (fire, face, heart)
+ * - Requires HIGH color variation (>150, up from >100)
+ * - Checks for distinct warm colors (orange/red) in fire emoji
+ * - Defaults to fallback if any doubt
+ */
+function checkEmojiSupport() {
+    if (emojiRenderingSupported !== null) return emojiRenderingSupported;
+
+    try {
+        const testCanvas = document.createElement('canvas');
+        testCanvas.width = 60;
+        testCanvas.height = 60;
+        const testCtx = testCanvas.getContext('2d');
+
+        // Test 1: Fire emoji - should have orange/yellow/red colors
+        testCtx.fillStyle = '#ffffff';
+        testCtx.fillRect(0, 0, 60, 60);
+        testCtx.font = '40px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", "Twemoji Mozilla", sans-serif';
+        testCtx.textAlign = 'center';
+        testCtx.textBaseline = 'middle';
+        testCtx.fillText('🔥', 30, 30);
+
+        const imageData = testCtx.getImageData(0, 0, 60, 60).data;
+        let minR = 255, maxR = 0;
+        let minG = 255, maxG = 0;
+        let minB = 255, maxB = 0;
+        let nonWhitePixels = 0;
+        let orangePixels = 0;  // Specifically look for warm colors
+        let redPixels = 0;
+
+        for (let i = 0; i < imageData.length; i += 4) {
+            const r = imageData[i];
+            const g = imageData[i + 1];
+            const b = imageData[i + 2];
+            const a = imageData[i + 3];
+
+            // Only check non-white, non-transparent pixels
+            if (a > 128 && (r < 230 || g < 230 || b < 230)) {
+                nonWhitePixels++;
+                minR = Math.min(minR, r); maxR = Math.max(maxR, r);
+                minG = Math.min(minG, g); maxG = Math.max(maxG, g);
+                minB = Math.min(minB, b); maxB = Math.max(maxB, b);
+
+                // Count orange/red pixels (fire should have these)
+                if (r > 180 && g > 80 && g < 200 && b < 100) {
+                    orangePixels++;
+                }
+                if (r > 180 && g < 100 && b < 100) {
+                    redPixels++;
+                }
+            }
+        }
+
+        const redRange = maxR - minR;
+        const greenRange = maxG - minG;
+        const blueRange = maxB - minB;
+        const totalVariation = redRange + greenRange + blueRange;
+
+        // STRICTER requirements for emoji support:
+        // 1. At least 30 non-white pixels (bigger test area)
+        // 2. High color variation (>150) indicating multi-color emoji
+        // 3. At least SOME warm-colored pixels (orange or red) for fire emoji
+        // This rejects: black circles, gray circles, monochrome text
+        const hasFireColors = orangePixels > 5 || redPixels > 5;
+        const hasHighVariation = totalVariation > 150;
+        const hasEnoughPixels = nonWhitePixels > 30;
+
+        // ALL conditions must pass
+        const hasGoodEmojiSupport = hasEnoughPixels && hasHighVariation && hasFireColors;
+
+        emojiRenderingSupported = hasGoodEmojiSupport;
+
+        console.log('Emoji rendering check (STRICT):', {
+            nonWhitePixels,
+            orangePixels,
+            redPixels,
+            redRange, greenRange, blueRange,
+            totalVariation,
+            hasFireColors,
+            hasHighVariation,
+            hasEnoughPixels,
+            supported: emojiRenderingSupported
+        });
+
+        // If emoji check passed but barely, still use fallback
+        // This catches edge cases where detection is close but emojis look bad
+        if (emojiRenderingSupported && totalVariation < 200) {
+            console.log('Emoji variation borderline - using fallback for safety');
+            emojiRenderingSupported = false;
+        }
+    } catch (e) {
+        console.warn('Error checking emoji support:', e);
+        emojiRenderingSupported = false;
+    }
+
+    return emojiRenderingSupported;
+}
+
+// Force fallback mode for testing or if emoji detection fails
+// Set this to true via browser console: window.FORCE_EMOJI_FALLBACK = true
+// ITERATION 4: Default to TRUE to always use distinct shapes
+let FORCE_EMOJI_FALLBACK = true;
+
+/**
+ * Draw an emoji on the canvas with proper rendering.
+ * Falls back to canvas-drawn shapes if emojis aren't supported.
+ * Always uses fallback if FORCE_EMOJI_FALLBACK is true.
+ *
+ * ITERATION 4 FIX: Now defaults to fallback mode for guaranteed visibility.
+ * The fallback shapes are colorful and distinct, making the game more
+ * accessible across all platforms.
+ */
+function drawEmoji(emoji, x, y, fontSize) {
+    // ITERATION 4: Always use fallback shapes by default
+    // This guarantees characters are visually distinct on ALL platforms
+    // Users can disable fallback with: window.FORCE_EMOJI_FALLBACK = false
+    if (FORCE_EMOJI_FALLBACK || window.FORCE_EMOJI_FALLBACK === undefined || window.FORCE_EMOJI_FALLBACK) {
+        drawFallbackShape(emoji, x, y, fontSize);
+        return;
+    }
+
+    // Only reach here if FORCE_EMOJI_FALLBACK is explicitly set to false
+    // Check if emojis are supported (cached after first check)
+    if (checkEmojiSupport()) {
+        // Emojis work - render directly
+        ctx.save();
+        ctx.font = `${fontSize}px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", "Twemoji Mozilla", "Android Emoji", "EmojiSymbols", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(emoji, x, y);
+        ctx.restore();
+    } else {
+        // Emojis don't work - use fallback canvas shapes
+        drawFallbackShape(emoji, x, y, fontSize);
+    }
+}
+
+/**
+ * Draw fallback shapes for entities when emojis aren't available.
+ * Creates visually distinct shapes for each entity type.
+ */
+function drawFallbackShape(emoji, x, y, fontSize) {
+    ctx.save();
+    const radius = fontSize / 2 - 2;
+
+    // Determine entity type by emoji and draw appropriate shape
+    switch (emoji) {
+        // Player emojis
+        case '🧙': // Wizard
+            drawWizardShape(x, y, radius);
+            break;
+        case '🧝': // Archer/Elf
+            drawArcherShape(x, y, radius);
+            break;
+        case '🦸': // Warrior with sword
+            drawWarriorSwordShape(x, y, radius);
+            break;
+        case '🥷': // Ninja/dagger warrior
+            drawNinjaShape(x, y, radius);
+            break;
+        case '💂': // Guard/spear warrior
+            drawGuardShape(x, y, radius);
+            break;
+        case '🧑': // Generic person
+            drawGenericPersonShape(x, y, radius);
+            break;
+
+        // Enemy emojis
+        case '🟢': // Slime
+            drawSlimeShape(x, y, radius);
+            break;
+        case '🦇': // Bat
+            drawBatShape(x, y, radius);
+            break;
+        case '💀': // Skeleton
+            drawSkeletonShape(x, y, radius);
+            break;
+        case '👻': // Ghost
+            drawGhostShape(x, y, radius);
+            break;
+        case '👿': // Demon
+            drawDemonShape(x, y, radius);
+            break;
+        case '🕷️': // Spider
+            drawSpiderShape(x, y, radius);
+            break;
+        case '🐉': // Dragon
+            drawDragonShape(x, y, radius);
+            break;
+        case '👾': // Generic enemy
+        default:
+            drawGenericEnemyShape(x, y, radius);
+            break;
+    }
+
+    ctx.restore();
+}
+
+// === Fallback Player Shapes ===
+
+function drawWizardShape(x, y, r) {
+    // Purple wizard with hat
+    ctx.fillStyle = '#9966ff';
+    ctx.beginPath();
+    ctx.arc(x, y + 2, r * 0.7, 0, Math.PI * 2);
+    ctx.fill();
+    // Hat (triangle)
+    ctx.fillStyle = '#6633cc';
+    ctx.beginPath();
+    ctx.moveTo(x, y - r);
+    ctx.lineTo(x - r * 0.6, y - 2);
+    ctx.lineTo(x + r * 0.6, y - 2);
+    ctx.closePath();
+    ctx.fill();
+    // Star on hat
+    ctx.fillStyle = '#ffcc00';
+    ctx.beginPath();
+    ctx.arc(x, y - r * 0.5, 3, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+function drawArcherShape(x, y, r) {
+    // Green archer with pointed ears
+    ctx.fillStyle = '#66cc66';
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.7, 0, Math.PI * 2);
+    ctx.fill();
+    // Pointed ears
+    ctx.fillStyle = '#55aa55';
+    ctx.beginPath();
+    ctx.moveTo(x - r * 0.5, y - r * 0.3);
+    ctx.lineTo(x - r * 0.8, y - r * 0.7);
+    ctx.lineTo(x - r * 0.3, y - r * 0.1);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x + r * 0.5, y - r * 0.3);
+    ctx.lineTo(x + r * 0.8, y - r * 0.7);
+    ctx.lineTo(x + r * 0.3, y - r * 0.1);
+    ctx.closePath();
+    ctx.fill();
+}
+
+function drawWarriorSwordShape(x, y, r) {
+    // Blue warrior with shield shape
+    ctx.fillStyle = '#4488ff';
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.7, 0, Math.PI * 2);
+    ctx.fill();
+    // Helmet
+    ctx.fillStyle = '#3366cc';
+    ctx.beginPath();
+    ctx.arc(x, y - r * 0.3, r * 0.5, Math.PI, 0);
+    ctx.fill();
+    // Sword line
+    ctx.strokeStyle = '#cccccc';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x + r * 0.3, y);
+    ctx.lineTo(x + r, y - r * 0.3);
+    ctx.stroke();
+}
+
+function drawNinjaShape(x, y, r) {
+    // Dark ninja
+    ctx.fillStyle = '#333344';
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.7, 0, Math.PI * 2);
+    ctx.fill();
+    // Eyes only (mask)
+    ctx.fillStyle = '#ff3333';
+    ctx.beginPath();
+    ctx.arc(x - r * 0.2, y - r * 0.1, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + r * 0.2, y - r * 0.1, 3, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+function drawGuardShape(x, y, r) {
+    // Red guard with tall hat
+    ctx.fillStyle = '#cc4444';
+    ctx.beginPath();
+    ctx.arc(x, y + 2, r * 0.7, 0, Math.PI * 2);
+    ctx.fill();
+    // Tall hat (rectangle)
+    ctx.fillStyle = '#222222';
+    ctx.fillRect(x - r * 0.4, y - r * 1.2, r * 0.8, r * 0.8);
+}
+
+function drawGenericPersonShape(x, y, r) {
+    // Simple person shape
+    ctx.fillStyle = '#ffcc88';
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.7, 0, Math.PI * 2);
+    ctx.fill();
+    // Simple face
+    ctx.fillStyle = '#333333';
+    ctx.beginPath();
+    ctx.arc(x - r * 0.2, y - r * 0.1, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + r * 0.2, y - r * 0.1, 2, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+// === Fallback Enemy Shapes ===
+
+function drawSlimeShape(x, y, r) {
+    // Green blob with gooey shape
+    ctx.fillStyle = '#44dd44';
+    ctx.beginPath();
+    ctx.ellipse(x, y + r * 0.2, r, r * 0.7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Shine
+    ctx.fillStyle = '#88ff88';
+    ctx.beginPath();
+    ctx.ellipse(x - r * 0.3, y - r * 0.1, r * 0.2, r * 0.15, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+    // Eyes
+    ctx.fillStyle = '#000000';
+    ctx.beginPath();
+    ctx.arc(x - r * 0.25, y, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + r * 0.25, y, 3, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+function drawBatShape(x, y, r) {
+    // Purple bat with wings
+    ctx.fillStyle = '#8844dd';
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+    // Wings
+    ctx.beginPath();
+    ctx.moveTo(x - r * 0.3, y);
+    ctx.quadraticCurveTo(x - r, y - r * 0.5, x - r, y + r * 0.3);
+    ctx.lineTo(x - r * 0.3, y + r * 0.2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x + r * 0.3, y);
+    ctx.quadraticCurveTo(x + r, y - r * 0.5, x + r, y + r * 0.3);
+    ctx.lineTo(x + r * 0.3, y + r * 0.2);
+    ctx.closePath();
+    ctx.fill();
+    // Eyes
+    ctx.fillStyle = '#ff0000';
+    ctx.beginPath();
+    ctx.arc(x - r * 0.15, y - r * 0.1, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + r * 0.15, y - r * 0.1, 2, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+function drawSkeletonShape(x, y, r) {
+    // White skull shape
+    ctx.fillStyle = '#eeeeee';
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.7, 0, Math.PI * 2);
+    ctx.fill();
+    // Eye sockets
+    ctx.fillStyle = '#000000';
+    ctx.beginPath();
+    ctx.arc(x - r * 0.25, y - r * 0.1, r * 0.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + r * 0.25, y - r * 0.1, r * 0.2, 0, Math.PI * 2);
+    ctx.fill();
+    // Nose hole
+    ctx.beginPath();
+    ctx.moveTo(x, y + r * 0.1);
+    ctx.lineTo(x - r * 0.1, y + r * 0.25);
+    ctx.lineTo(x + r * 0.1, y + r * 0.25);
+    ctx.closePath();
+    ctx.fill();
+}
+
+function drawGhostShape(x, y, r) {
+    // White ghost with wavy bottom
+    ctx.fillStyle = 'rgba(200, 200, 255, 0.8)';
+    ctx.beginPath();
+    ctx.arc(x, y - r * 0.2, r * 0.7, Math.PI, 0);
+    ctx.lineTo(x + r * 0.7, y + r * 0.5);
+    ctx.quadraticCurveTo(x + r * 0.35, y + r * 0.3, x, y + r * 0.5);
+    ctx.quadraticCurveTo(x - r * 0.35, y + r * 0.3, x - r * 0.7, y + r * 0.5);
+    ctx.closePath();
+    ctx.fill();
+    // Eyes
+    ctx.fillStyle = '#000000';
+    ctx.beginPath();
+    ctx.ellipse(x - r * 0.25, y - r * 0.2, r * 0.12, r * 0.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(x + r * 0.25, y - r * 0.2, r * 0.12, r * 0.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+function drawDemonShape(x, y, r) {
+    // Red demon with horns
+    ctx.fillStyle = '#dd4444';
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.7, 0, Math.PI * 2);
+    ctx.fill();
+    // Horns
+    ctx.fillStyle = '#880000';
+    ctx.beginPath();
+    ctx.moveTo(x - r * 0.5, y - r * 0.4);
+    ctx.lineTo(x - r * 0.7, y - r);
+    ctx.lineTo(x - r * 0.2, y - r * 0.5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x + r * 0.5, y - r * 0.4);
+    ctx.lineTo(x + r * 0.7, y - r);
+    ctx.lineTo(x + r * 0.2, y - r * 0.5);
+    ctx.closePath();
+    ctx.fill();
+    // Evil eyes
+    ctx.fillStyle = '#ffff00';
+    ctx.beginPath();
+    ctx.arc(x - r * 0.25, y - r * 0.1, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + r * 0.25, y - r * 0.1, 3, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+function drawSpiderShape(x, y, r) {
+    // Brown spider body
+    ctx.fillStyle = '#664422';
+    ctx.beginPath();
+    ctx.ellipse(x, y, r * 0.4, r * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Head
+    ctx.beginPath();
+    ctx.arc(x, y - r * 0.4, r * 0.25, 0, Math.PI * 2);
+    ctx.fill();
+    // Legs
+    ctx.strokeStyle = '#664422';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 4; i++) {
+        const angle = (i - 1.5) * 0.4;
+        ctx.beginPath();
+        ctx.moveTo(x - r * 0.3, y + (i - 1.5) * r * 0.2);
+        ctx.quadraticCurveTo(x - r, y + (i - 1.5) * r * 0.15, x - r * 0.9, y + r * 0.5 + i * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x + r * 0.3, y + (i - 1.5) * r * 0.2);
+        ctx.quadraticCurveTo(x + r, y + (i - 1.5) * r * 0.15, x + r * 0.9, y + r * 0.5 + i * 2);
+        ctx.stroke();
+    }
+    // Eyes
+    ctx.fillStyle = '#ff0000';
+    ctx.beginPath();
+    ctx.arc(x - r * 0.1, y - r * 0.45, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + r * 0.1, y - r * 0.45, 2, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+function drawDragonShape(x, y, r) {
+    // Large red dragon
+    ctx.fillStyle = '#ff4400';
+    // Body
+    ctx.beginPath();
+    ctx.ellipse(x, y, r * 0.8, r * 0.6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Head
+    ctx.beginPath();
+    ctx.ellipse(x + r * 0.6, y - r * 0.3, r * 0.4, r * 0.35, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+    // Wings
+    ctx.fillStyle = '#cc3300';
+    ctx.beginPath();
+    ctx.moveTo(x - r * 0.2, y - r * 0.3);
+    ctx.quadraticCurveTo(x - r * 0.5, y - r * 1.2, x - r, y - r * 0.5);
+    ctx.lineTo(x - r * 0.5, y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x + r * 0.2, y - r * 0.3);
+    ctx.quadraticCurveTo(x + r * 0.5, y - r * 1.2, x + r, y - r * 0.5);
+    ctx.lineTo(x + r * 0.5, y);
+    ctx.closePath();
+    ctx.fill();
+    // Eye
+    ctx.fillStyle = '#ffff00';
+    ctx.beginPath();
+    ctx.arc(x + r * 0.7, y - r * 0.35, 4, 0, Math.PI * 2);
+    ctx.fill();
+    // Fire breath indication
+    ctx.fillStyle = '#ffaa00';
+    ctx.beginPath();
+    ctx.moveTo(x + r, y - r * 0.2);
+    ctx.lineTo(x + r * 1.3, y - r * 0.1);
+    ctx.lineTo(x + r, y);
+    ctx.closePath();
+    ctx.fill();
+}
+
+function drawGenericEnemyShape(x, y, r) {
+    // Purple alien-like shape
+    ctx.fillStyle = '#aa44aa';
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.7, 0, Math.PI * 2);
+    ctx.fill();
+    // Antenna
+    ctx.strokeStyle = '#aa44aa';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x - r * 0.3, y - r * 0.5);
+    ctx.lineTo(x - r * 0.4, y - r);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x + r * 0.3, y - r * 0.5);
+    ctx.lineTo(x + r * 0.4, y - r);
+    ctx.stroke();
+    // Antenna tips
+    ctx.fillStyle = '#ff00ff';
+    ctx.beginPath();
+    ctx.arc(x - r * 0.4, y - r, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + r * 0.4, y - r, 3, 0, Math.PI * 2);
+    ctx.fill();
+    // Eyes
+    ctx.fillStyle = '#00ff00';
+    ctx.beginPath();
+    ctx.arc(x - r * 0.2, y - r * 0.1, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + r * 0.2, y - r * 0.1, 4, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+/**
  * Render enemies.
  */
 function renderEnemies() {
     enemies.forEach(enemy => {
-        ctx.fillStyle = COLORS[enemy.type] || '#ff0000';
+        // Draw enemy emoji
+        const emoji = getEnemyEmoji(enemy.type);
+        const fontSize = enemy.type === 'dragon' ? 48 : 28;
 
-        // Draw enemy shape based on type
-        ctx.beginPath();
-        switch (enemy.type) {
-            case 'slime':
-                // Blob shape
-                ctx.ellipse(enemy.x, enemy.y + 4, ENEMY_SIZE/2, ENEMY_SIZE/2 - 4, 0, 0, Math.PI * 2);
-                break;
-            case 'bat':
-                // Diamond shape
-                ctx.moveTo(enemy.x, enemy.y - ENEMY_SIZE/2);
-                ctx.lineTo(enemy.x + ENEMY_SIZE/2, enemy.y);
-                ctx.lineTo(enemy.x, enemy.y + ENEMY_SIZE/2);
-                ctx.lineTo(enemy.x - ENEMY_SIZE/2, enemy.y);
-                break;
-            case 'dragon':
-                // Large triangle
-                ctx.moveTo(enemy.x, enemy.y - ENEMY_SIZE);
-                ctx.lineTo(enemy.x + ENEMY_SIZE, enemy.y + ENEMY_SIZE/2);
-                ctx.lineTo(enemy.x - ENEMY_SIZE, enemy.y + ENEMY_SIZE/2);
-                break;
-            default:
-                // Circle
-                ctx.arc(enemy.x, enemy.y, ENEMY_SIZE/2, 0, Math.PI * 2);
-        }
-        ctx.fill();
+        drawEmoji(emoji, enemy.x, enemy.y, fontSize);
 
         // Draw HP bar
         const hpPercent = enemy.hp / enemy.maxHp;
+        const hpBarY = enemy.type === 'dragon' ? enemy.y - 30 : enemy.y - ENEMY_SIZE/2 - 8;
         ctx.fillStyle = '#333';
-        ctx.fillRect(enemy.x - 15, enemy.y - ENEMY_SIZE/2 - 8, 30, 4);
+        ctx.fillRect(enemy.x - 15, hpBarY, 30, 4);
         ctx.fillStyle = hpPercent > 0.5 ? '#4a4' : (hpPercent > 0.25 ? '#aa4' : '#a44');
-        ctx.fillRect(enemy.x - 15, enemy.y - ENEMY_SIZE/2 - 8, 30 * hpPercent, 4);
+        ctx.fillRect(enemy.x - 15, hpBarY, 30 * hpPercent, 4);
     });
+}
+
+/**
+ * Get player emoji based on class.
+ */
+function getPlayerEmoji() {
+    switch (gameState.playerClass) {
+        case 'wizard': return '🧙';           // Wizard
+        case 'archer': return '🧝';           // Elf/archer
+        case 'warrior_sword': return '🦸';    // Superhero/warrior
+        case 'warrior_dagger': return '🥷';   // Ninja
+        case 'warrior_spear': return '💂';    // Guard with spear
+        default: return '🧑';                  // Generic person
+    }
 }
 
 /**
@@ -1194,21 +2319,15 @@ function renderPlayer() {
         return;
     }
 
-    ctx.fillStyle = COLORS.player;
-    ctx.strokeStyle = COLORS.playerOutline;
-    ctx.lineWidth = 2;
+    // Draw player emoji using the emoji drawing function
+    const emoji = getPlayerEmoji();
+    drawEmoji(emoji, player.x, player.y, 32);
 
-    // Draw player as circle
-    ctx.beginPath();
-    ctx.arc(player.x, player.y, PLAYER_SIZE/2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-
-    // Draw direction indicator
+    // Draw direction indicator (small arrow)
     const dir = getDirectionOffset(player.direction);
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = '#00d9ff';
     ctx.beginPath();
-    ctx.arc(player.x + dir.x * 10, player.y + dir.y * 10, 5, 0, Math.PI * 2);
+    ctx.arc(player.x + dir.x * 18, player.y + dir.y * 18, 4, 0, Math.PI * 2);
     ctx.fill();
 }
 
