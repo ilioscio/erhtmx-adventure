@@ -151,7 +151,7 @@ update_position(State, Area, {MapX, MapY}, {TileX, TileY}) ->
 %% @end
 %%--------------------------------------------------------------------
 take_damage(State, Damage) ->
-    CurrentHp = maps:get(hp, State),
+    CurrentHp = maps:get(hp, State, 100),
     NewHp = max(0, CurrentHp - Damage),
     NewState = State#{hp => NewHp},
     Status = if NewHp > 0 -> alive; true -> dead end,
@@ -162,8 +162,8 @@ take_damage(State, Damage) ->
 %% @end
 %%--------------------------------------------------------------------
 heal(State, Amount) ->
-    CurrentHp = maps:get(hp, State),
-    MaxHp = maps:get(max_hp, State),
+    CurrentHp = maps:get(hp, State, 100),
+    MaxHp = maps:get(max_hp, State, 100),
     NewHp = min(MaxHp, CurrentHp + Amount),
     State#{hp => NewHp}.
 
@@ -172,7 +172,7 @@ heal(State, Amount) ->
 %% @end
 %%--------------------------------------------------------------------
 add_item(State, Item) when is_binary(Item) ->
-    Inventory = maps:get(inventory, State),
+    Inventory = maps:get(inventory, State, []),
     State#{inventory => Inventory ++ [Item]}.
 
 %%--------------------------------------------------------------------
@@ -180,7 +180,7 @@ add_item(State, Item) when is_binary(Item) ->
 %% @end
 %%--------------------------------------------------------------------
 remove_item(State, Item) when is_binary(Item) ->
-    Inventory = maps:get(inventory, State),
+    Inventory = maps:get(inventory, State, []),
     State#{inventory => lists:delete(Item, Inventory)}.
 
 %%--------------------------------------------------------------------
@@ -188,7 +188,7 @@ remove_item(State, Item) when is_binary(Item) ->
 %% @end
 %%--------------------------------------------------------------------
 has_item(State, Item) when is_binary(Item) ->
-    Inventory = maps:get(inventory, State),
+    Inventory = maps:get(inventory, State, []),
     lists:member(Item, Inventory).
 
 %%--------------------------------------------------------------------
@@ -197,7 +197,7 @@ has_item(State, Item) when is_binary(Item) ->
 %% @end
 %%--------------------------------------------------------------------
 add_key(State, KeyId) when is_binary(KeyId) ->
-    Keys = maps:get(keys, State),
+    Keys = maps:get(keys, State, []),
     case lists:member(KeyId, Keys) of
         true -> State;
         false -> State#{keys => Keys ++ [KeyId]}
@@ -208,7 +208,7 @@ add_key(State, KeyId) when is_binary(KeyId) ->
 %% @end
 %%--------------------------------------------------------------------
 has_key(State, KeyId) when is_binary(KeyId) ->
-    Keys = maps:get(keys, State),
+    Keys = maps:get(keys, State, []),
     lists:member(KeyId, Keys).
 
 %%--------------------------------------------------------------------
@@ -216,9 +216,15 @@ has_key(State, KeyId) when is_binary(KeyId) ->
 %% @end
 %%--------------------------------------------------------------------
 mark_chest_opened(State, {Area, MapX, MapY}, ChestId) ->
-    Opened = maps:get(chests_opened, State),
+    Opened = maps:get(chests_opened, State, []),
     Entry = {Area, MapX, MapY, ChestId},
-    case lists:member(Entry, Opened) of
+    %% Check for both tuple and list format (list comes from JSON restoration)
+    AlreadyOpened = lists:any(fun
+        ({A, MX, MY, CId}) -> A == Area andalso MX == MapX andalso MY == MapY andalso CId == ChestId;
+        ([A, MX, MY, CId]) -> A == Area andalso MX == MapX andalso MY == MapY andalso CId == ChestId;
+        (_) -> false
+    end, Opened),
+    case AlreadyOpened of
         true -> State;
         false -> State#{chests_opened => Opened ++ [Entry]}
     end.
@@ -228,31 +234,51 @@ mark_chest_opened(State, {Area, MapX, MapY}, ChestId) ->
 %% @end
 %%--------------------------------------------------------------------
 is_chest_opened(State, {Area, MapX, MapY}, ChestId) ->
-    Opened = maps:get(chests_opened, State),
-    lists:member({Area, MapX, MapY, ChestId}, Opened).
+    Opened = maps:get(chests_opened, State, []),
+    %% Check for both tuple and list format (list comes from JSON restoration)
+    lists:any(fun
+        ({A, MX, MY, CId}) -> A == Area andalso MX == MapX andalso MY == MapY andalso CId == ChestId;
+        ([A, MX, MY, CId]) -> A == Area andalso MX == MapX andalso MY == MapY andalso CId == ChestId;
+        (_) -> false
+    end, Opened).
 
 %%--------------------------------------------------------------------
 %% @doc Marks an enemy as killed on a specific map.
 %% @end
 %%--------------------------------------------------------------------
 mark_enemy_killed(State, {Area, MapX, MapY}, EnemyId, Killed) ->
-    EnemiesKilled = maps:get(enemies_killed, State),
-    MapKey = {Area, MapX, MapY},
-    MapKilled = maps:get(MapKey, EnemiesKilled, []),
+    EnemiesKilled = maps:get(enemies_killed, State, #{}),
+    %% Build string key for lookup (matches JSON restoration format)
+    AreaBin = if is_atom(Area) -> atom_to_binary(Area, utf8); true -> Area end,
+    StringKey = iolist_to_binary([AreaBin, <<"_">>, integer_to_binary(MapX), <<"_">>, integer_to_binary(MapY)]),
+    TupleKey = {Area, MapX, MapY},
+    %% Try both key formats (tuple for new entries, string for JSON-restored entries)
+    MapKilled = case maps:get(TupleKey, EnemiesKilled, undefined) of
+        undefined -> maps:get(StringKey, EnemiesKilled, []);
+        Val -> Val
+    end,
     NewMapKilled = case Killed of
         true -> lists:usort([EnemyId | MapKilled]);
         false -> lists:delete(EnemyId, MapKilled)
     end,
-    State#{enemies_killed => EnemiesKilled#{MapKey => NewMapKilled}}.
+    %% Store with tuple key (will be converted to string on JSON serialization)
+    State#{enemies_killed => EnemiesKilled#{TupleKey => NewMapKilled}}.
 
 %%--------------------------------------------------------------------
 %% @doc Gets list of killed enemy IDs for a specific map.
 %% @end
 %%--------------------------------------------------------------------
 get_enemies_killed(State, Area, {MapX, MapY}) ->
-    EnemiesKilled = maps:get(enemies_killed, State),
-    MapKey = {Area, MapX, MapY},
-    maps:get(MapKey, EnemiesKilled, []).
+    EnemiesKilled = maps:get(enemies_killed, State, #{}),
+    %% Build string key for lookup (matches JSON restoration format)
+    AreaBin = if is_atom(Area) -> atom_to_binary(Area, utf8); true -> Area end,
+    StringKey = iolist_to_binary([AreaBin, <<"_">>, integer_to_binary(MapX), <<"_">>, integer_to_binary(MapY)]),
+    TupleKey = {Area, MapX, MapY},
+    %% Try both key formats (tuple for new entries, string for JSON-restored entries)
+    case maps:get(TupleKey, EnemiesKilled, undefined) of
+        undefined -> maps:get(StringKey, EnemiesKilled, []);
+        Val -> Val
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc Returns a default empty state (for new visitors).

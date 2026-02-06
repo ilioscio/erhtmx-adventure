@@ -283,8 +283,20 @@ format_contents({item, ItemName}) -> #{type => <<"item">>, id => ItemName}.
 
 %%--------------------------------------------------------------------
 %% @doc Formats opened chests for current map.
+%% Handles both tuple format (from new entries) and list format (from JSON restoration).
 %% @end
 %%--------------------------------------------------------------------
 format_chests_opened(ChestsOpened, Area, MapX, MapY) ->
-    [ChestId || {A, MX, MY, ChestId} <- ChestsOpened,
-                A == Area, MX == MapX, MY == MapY].
+    lists:filtermap(fun
+        ({A, MX, MY, ChestId}) when A == Area, MX == MapX, MY == MapY -> {true, ChestId};
+        ([A, MX, MY, ChestId]) when A == Area, MX == MapX, MY == MapY -> {true, ChestId};
+        %% Also handle when area comes back as binary from JSON
+        ([ABin, MX, MY, ChestId]) when is_binary(ABin), MX == MapX, MY == MapY ->
+            case ABin of
+                <<"training_grounds">> when Area == training_grounds -> {true, ChestId};
+                <<"castle">> when Area == castle -> {true, ChestId};
+                <<"dungeon">> when Area == dungeon -> {true, ChestId};
+                _ -> false
+            end;
+        (_) -> false
+    end, ChestsOpened).

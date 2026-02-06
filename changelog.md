@@ -1,5 +1,131 @@
 # Changelog
 
+## 2026-02-06 (Iteration 5) - State Persistence Fix: {badkey,hp} Error and Item Saving
+
+### Overview
+This iteration fixes critical bugs in the game state persistence system that caused:
+1. `{badkey,hp}` API errors in eshell output
+2. Items not being saved when closing and reloading the game
+
+### Root Cause Analysis
+
+#### Issue 1: `{badkey,hp}` Error
+**Problem**: The error `{badkey,hp}` was appearing in eshell when API calls were made.
+
+**Root Cause**: Multiple `maps:get/2` calls in `game_state.erl` lacked default values. When state was loaded from a malformed or incomplete JSON cookie (e.g., older saves missing new fields), the code would crash trying to access non-existent keys.
+
+**Affected Functions**:
+- `take_damage/2` - `maps:get(hp, State)` without default
+- `heal/2` - `maps:get(hp, State)` and `maps:get(max_hp, State)` without defaults
+- `add_item/2`, `remove_item/2`, `has_item/2` - `maps:get(inventory, State)` without default
+- `add_key/2`, `has_key/2` - `maps:get(keys, State)` without default
+- `mark_chest_opened/3`, `is_chest_opened/3` - `maps:get(chests_opened, State)` without default
+- `mark_enemy_killed/4`, `get_enemies_killed/3` - `maps:get(enemies_killed, State)` without default
+
+**Fix**: Added default values to all `maps:get/2` calls:
+```erlang
+% Before:
+CurrentHp = maps:get(hp, State),
+% After:
+CurrentHp = maps:get(hp, State, 100),
+```
+
+#### Issue 2: Items/Chests/Enemies Not Persisting
+**Problem**: Items collected, chests opened, and enemies killed were not saved across page reloads.
+
+**Root Cause**: JSON serialization/deserialization type mismatches:
+
+1. **`chests_opened`**: Stored as tuples `{Area, MapX, MapY, ChestId}` but JSON converts tuples to lists. On restoration, lists like `["training_grounds", 0, 0, "chest_1"]` didn't match tuple patterns like `{A, MX, MY, CId}`.
+
+2. **`enemies_killed`**: Map keys are tuples `{Area, MapX, MapY}` which become string keys like `"training_grounds_0_1"` in JSON. On lookup, tuple keys didn't match string keys.
+
+3. **`format_chests_opened/4`**: List comprehension pattern `{A, MX, MY, ChestId}` didn't match list format from JSON.
+
+**Fixes**:
+
+1. **`mark_chest_opened/3` and `is_chest_opened/3`**: Now check for both tuple AND list formats:
+```erlang
+lists:any(fun
+    ({A, MX, MY, CId}) -> A == Area andalso MX == MapX andalso MY == MapY andalso CId == ChestId;
+    ([A, MX, MY, CId]) -> A == Area andalso MX == MapX andalso MY == MapY andalso CId == ChestId;
+    (_) -> false
+end, Opened)
+```
+
+2. **`mark_enemy_killed/4` and `get_enemies_killed/3`**: Now lookup using both tuple key AND string key:
+```erlang
+StringKey = iolist_to_binary([AreaBin, <<"_">>, integer_to_binary(MapX), <<"_">>, integer_to_binary(MapY)]),
+TupleKey = {Area, MapX, MapY},
+case maps:get(TupleKey, EnemiesKilled, undefined) of
+    undefined -> maps:get(StringKey, EnemiesKilled, []);
+    Val -> Val
+end
+```
+
+3. **`format_chests_opened/4`** in `game_handler.erl`: Now handles tuple, list, and binary area name formats:
+```erlang
+lists:filtermap(fun
+    ({A, MX, MY, ChestId}) when A == Area, MX == MapX, MY == MapY -> {true, ChestId};
+    ([A, MX, MY, ChestId]) when A == Area, MX == MapX, MY == MapY -> {true, ChestId};
+    ([ABin, MX, MY, ChestId]) when is_binary(ABin), MX == MapX, MY == MapY ->
+        case ABin of
+            <<"training_grounds">> when Area == training_grounds -> {true, ChestId};
+            <<"castle">> when Area == castle -> {true, ChestId};
+            <<"dungeon">> when Area == dungeon -> {true, ChestId};
+            _ -> false
+        end;
+    (_) -> false
+end, ChestsOpened)
+```
+
+### Files Modified
+
+**`src/game_state.erl`**:
+- Added default values to `maps:get/2` calls in:
+  - `take_damage/2` (line 154)
+  - `heal/2` (lines 165-166)
+  - `add_item/2` (line 175)
+  - `remove_item/2` (line 183)
+  - `has_item/2` (line 191)
+  - `add_key/2` (line 200)
+  - `has_key/2` (line 211)
+- Rewrote `mark_chest_opened/3` to handle both tuple and list formats
+- Rewrote `is_chest_opened/3` to handle both tuple and list formats
+- Rewrote `mark_enemy_killed/4` to handle both tuple and string key formats
+- Rewrote `get_enemies_killed/3` to handle both tuple and string key formats
+
+**`src/game_handler.erl`**:
+- Rewrote `format_chests_opened/4` to handle tuple, list, and binary area name formats
+
+### Testing Verification
+
+All API endpoints tested successfully:
+- ✓ `take_damage` action no longer causes `{badkey,hp}` error
+- ✓ `heal` action works correctly
+- ✓ `add_item` action persists items in inventory
+- ✓ `open_chest` action persists in `chests_opened`
+- ✓ `kill_enemy` action persists in `enemies_killed`
+- ✓ State correctly retrieved from cookie after simulated page reload
+
+### Notes for Future Agents
+
+1. **Always use `maps:get/3`** with a default value when accessing game state fields, especially in functions that may receive state from JSON restoration.
+
+2. **JSON round-trip changes types**: Erlang tuples become JSON arrays (lists in Erlang). Erlang atoms become JSON strings (binaries in Erlang). Map keys that are tuples become concatenated strings.
+
+3. **Dual-format lookup pattern**: When dealing with persisted data that may have been serialized/deserialized, always check for both the "native" Erlang format and the "restored from JSON" format.
+
+4. **To test persistence**:
+   ```bash
+   cd erhtmx-adventure
+   nix develop --command rebar3 shell
+   # In browser, create character, collect items, open chests
+   # Refresh page - items and chests should persist
+   # Check eshell for any errors
+   ```
+
+---
+
 ## 2026-02-05 (Iteration 4) - DEFINITIVE FIX: Guaranteed Visual Fixes
 
 ### Overview
