@@ -327,6 +327,13 @@ function setupInput() {
             e.preventDefault();
         }
 
+        // Number keys 1-8 to select/use inventory items
+        if (e.key >= '1' && e.key <= '8') {
+            const slotIndex = parseInt(e.key) - 1;
+            selectInventorySlot(slotIndex);
+            e.preventDefault();
+        }
+
         // Prevent arrow key scrolling
         if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
             e.preventDefault();
@@ -336,6 +343,51 @@ function setupInput() {
     window.addEventListener('keyup', (e) => {
         keysHeld.delete(e.key.toLowerCase());
     });
+}
+
+/**
+ * Select or use an inventory slot by index (0-7).
+ */
+function selectInventorySlot(index) {
+    const item = gameState.inventory[index];
+    if (!item) {
+        showMessage(`Slot ${index + 1} is empty`);
+        return;
+    }
+
+    if (isWeapon(item)) {
+        // Equip the weapon
+        player.weapon = item;
+
+        // Update selection visual
+        const slots = document.querySelectorAll('.inventory-slot');
+        slots.forEach((s, i) => {
+            if (i === index) {
+                s.classList.add('selected');
+            } else {
+                s.classList.remove('selected');
+            }
+        });
+
+        showMessage(`Equipped ${formatItemName(item)}`);
+    } else if (item === 'health_potion') {
+        // Use health potion
+        gameState.hp = Math.min(gameState.maxHp, gameState.hp + 30);
+        gameState.inventory.splice(index, 1);
+        updateHpBar();
+        updateInventoryDisplay();
+        showMessage('Used Health Potion (+30 HP)');
+
+        // Save to server
+        fetch('/api/game', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'heal',
+                amount: 30
+            })
+        });
+    }
 }
 
 /**
@@ -640,11 +692,24 @@ function updatePlayer(deltaTime) {
 /**
  * Update enemy positions and behavior.
  * Enemies move chaotically like in Link's Awakening.
+ * Dragon has special fire breath attack.
  */
 function updateEnemies(deltaTime) {
     enemies.forEach(enemy => {
         enemy.moveTimer += deltaTime;
         enemy.changeDir -= deltaTime;
+
+        // Initialize fire cooldown if not set
+        if (enemy.fireCooldown === undefined) {
+            enemy.fireCooldown = 0;
+        }
+        enemy.fireCooldown -= deltaTime;
+
+        // Special behavior for dragon
+        if (enemy.type === 'dragon') {
+            updateDragon(enemy, deltaTime);
+            return;
+        }
 
         // Change direction randomly
         if (enemy.changeDir <= 0) {
@@ -673,6 +738,78 @@ function updateEnemies(deltaTime) {
         // Clamp to walkable area
         enemy.x = Math.max(TILE_SIZE + ENEMY_SIZE/2, Math.min(CANVAS_WIDTH - TILE_SIZE - ENEMY_SIZE/2, enemy.x));
         enemy.y = Math.max(TILE_SIZE + ENEMY_SIZE/2, Math.min(CANVAS_HEIGHT - TILE_SIZE - ENEMY_SIZE/2, enemy.y));
+    });
+}
+
+/**
+ * Update dragon boss behavior.
+ * Dragon moves slowly and periodically breathes fire in a cone towards the player.
+ */
+function updateDragon(dragon, deltaTime) {
+    // Dragon moves slower and tracks player loosely
+    dragon.changeDir -= deltaTime;
+
+    // Occasionally face the player
+    if (dragon.changeDir <= 0) {
+        const dx = player.x - dragon.x;
+        const dy = player.y - dragon.y;
+        dragon.direction = Math.atan2(dy, dx);
+        dragon.changeDir = 1500 + Math.random() * 1000;
+    }
+
+    // Move slowly
+    const speed = 1;
+    const newX = dragon.x + Math.cos(dragon.direction) * speed;
+    const newY = dragon.y + Math.sin(dragon.direction) * speed;
+
+    if (!checkTileCollision(newX, dragon.y, ENEMY_SIZE * 1.5)) {
+        dragon.x = newX;
+    }
+    if (!checkTileCollision(dragon.x, newY, ENEMY_SIZE * 1.5)) {
+        dragon.y = newY;
+    }
+
+    // Clamp to walkable area
+    dragon.x = Math.max(TILE_SIZE * 2, Math.min(CANVAS_WIDTH - TILE_SIZE * 2, dragon.x));
+    dragon.y = Math.max(TILE_SIZE * 2, Math.min(CANVAS_HEIGHT - TILE_SIZE * 2, dragon.y));
+
+    // Fire breath attack - cone of 3 fireballs towards player
+    if (dragon.fireCooldown <= 0) {
+        dragonFireBreath(dragon);
+        dragon.fireCooldown = 2500 + Math.random() * 1000; // 2.5-3.5 seconds between attacks
+    }
+}
+
+/**
+ * Dragon breathes fire in a cone towards the player.
+ * Creates 3 fireballs in a spread pattern.
+ */
+function dragonFireBreath(dragon) {
+    const dx = player.x - dragon.x;
+    const dy = player.y - dragon.y;
+    const baseAngle = Math.atan2(dy, dx);
+
+    // Fire speed - slow enough to dodge
+    const fireSpeed = 3;
+
+    // Spread angle for the cone (30 degrees on each side = 60 degree cone)
+    const spreadAngle = Math.PI / 6;
+
+    // Create 3 fireballs in a cone pattern
+    const angles = [baseAngle - spreadAngle, baseAngle, baseAngle + spreadAngle];
+
+    angles.forEach(angle => {
+        projectiles.push({
+            type: 'dragon_fire',
+            x: dragon.x,
+            y: dragon.y,
+            vx: Math.cos(angle) * fireSpeed,
+            vy: Math.sin(angle) * fireSpeed,
+            damage: 20,
+            size: 20,
+            lifetime: 2000,
+            isEnemy: true  // Mark as enemy projectile to damage player
+        });
     });
 }
 
@@ -709,14 +846,23 @@ function updateProjectiles(deltaTime) {
             return false;
         }
 
-        // Check enemy hits
-        enemies.forEach(enemy => {
-            const dist = Math.hypot(enemy.x - proj.x, enemy.y - proj.y);
-            if (dist < ENEMY_SIZE/2 + proj.size/2) {
-                damageEnemy(enemy, proj.damage);
+        // Enemy projectiles damage player
+        if (proj.isEnemy) {
+            const dist = Math.hypot(player.x - proj.x, player.y - proj.y);
+            if (dist < PLAYER_SIZE/2 + proj.size/2) {
+                damagePlayer(proj.damage, proj.x, proj.y);
                 proj.lifetime = 0; // Remove projectile
             }
-        });
+        } else {
+            // Player projectiles damage enemies
+            enemies.forEach(enemy => {
+                const dist = Math.hypot(enemy.x - proj.x, enemy.y - proj.y);
+                if (dist < ENEMY_SIZE/2 + proj.size/2) {
+                    damageEnemy(enemy, proj.damage);
+                    proj.lifetime = 0; // Remove projectile
+                }
+            });
+        }
 
         return proj.lifetime > 0;
     });
@@ -1415,6 +1561,14 @@ function transitionArea(direction) {
         }
     }
 
+    // Save current HP as floor entry HP (for "Try Again" functionality)
+    gameState.floorEntryHp = gameState.hp;
+    fetch('/api/game', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'save_floor_entry_hp' })
+    });
+
     gameState.area = newArea;
     gameState.mapX = newX;
     gameState.mapY = newY;
@@ -1654,8 +1808,90 @@ function renderMap() {
                 ctx.lineWidth = 2;
                 ctx.strokeRect(x * TILE_SIZE + 1, y * TILE_SIZE + 1, TILE_SIZE - 2, TILE_SIZE - 2);
             }
+
+            // Draw lock icon on locked doors
+            if (tile === TILE_LOCKED_DOOR) {
+                drawLockIcon(x * TILE_SIZE + TILE_SIZE / 2, y * TILE_SIZE + TILE_SIZE / 2);
+            }
+
+            // Draw stairs with more detail
+            if (tile === TILE_STAIRS_UP || tile === TILE_STAIRS_DOWN) {
+                drawStairs(x * TILE_SIZE, y * TILE_SIZE, tile === TILE_STAIRS_DOWN);
+            }
         }
     }
+}
+
+/**
+ * Draw a lock icon at the specified position.
+ */
+function drawLockIcon(x, y) {
+    ctx.save();
+
+    // Lock body (rectangle)
+    ctx.fillStyle = '#ffd700';  // Gold color
+    ctx.fillRect(x - 6, y - 2, 12, 10);
+
+    // Lock shackle (arc)
+    ctx.strokeStyle = '#ffd700';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(x, y - 4, 5, Math.PI, 0, false);
+    ctx.stroke();
+
+    // Keyhole
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.arc(x, y + 2, 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+}
+
+/**
+ * Draw stairs with visual detail.
+ */
+function drawStairs(x, y, isDown) {
+    ctx.save();
+
+    const stepCount = 4;
+    const stepHeight = TILE_SIZE / stepCount;
+    const stepWidth = TILE_SIZE - 8;
+
+    // Draw steps
+    for (let i = 0; i < stepCount; i++) {
+        // Steps get darker as they go down (or lighter for up)
+        const shade = isDown ? (40 - i * 8) : (20 + i * 8);
+        ctx.fillStyle = lightenColor(isDown ? COLORS.stairsDown : COLORS.stairsUp, shade);
+
+        const stepY = isDown ? y + i * stepHeight : y + (stepCount - 1 - i) * stepHeight;
+        const stepX = x + 4 + (isDown ? i * 2 : (stepCount - 1 - i) * 2);
+        const width = stepWidth - (isDown ? i * 4 : (stepCount - 1 - i) * 4);
+
+        ctx.fillRect(stepX, stepY, width, stepHeight - 1);
+
+        // Step edge highlight
+        ctx.fillStyle = lightenColor(isDown ? COLORS.stairsDown : COLORS.stairsUp, shade + 30);
+        ctx.fillRect(stepX, stepY, width, 2);
+    }
+
+    // Arrow indicator
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    const arrowX = x + TILE_SIZE / 2;
+    const arrowY = y + TILE_SIZE / 2;
+    if (isDown) {
+        ctx.moveTo(arrowX, arrowY + 8);
+        ctx.lineTo(arrowX - 6, arrowY);
+        ctx.lineTo(arrowX + 6, arrowY);
+    } else {
+        ctx.moveTo(arrowX, arrowY - 8);
+        ctx.lineTo(arrowX - 6, arrowY);
+        ctx.lineTo(arrowX + 6, arrowY);
+    }
+    ctx.fill();
+
+    ctx.restore();
 }
 
 /**
@@ -2353,6 +2589,29 @@ function renderProjectiles() {
                 ctx.arc(proj.x, proj.y, proj.size/3, 0, Math.PI * 2);
                 ctx.fill();
                 break;
+            case 'dragon_fire':
+                // Dragon fire - larger, more dangerous looking
+                // Outer glow
+                ctx.fillStyle = 'rgba(255, 100, 0, 0.5)';
+                ctx.beginPath();
+                ctx.arc(proj.x, proj.y, proj.size/2 + 4, 0, Math.PI * 2);
+                ctx.fill();
+                // Main fire
+                ctx.fillStyle = '#ff4400';
+                ctx.beginPath();
+                ctx.arc(proj.x, proj.y, proj.size/2, 0, Math.PI * 2);
+                ctx.fill();
+                // Hot core
+                ctx.fillStyle = '#ffcc00';
+                ctx.beginPath();
+                ctx.arc(proj.x, proj.y, proj.size/3, 0, Math.PI * 2);
+                ctx.fill();
+                // White hot center
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.arc(proj.x, proj.y, proj.size/6, 0, Math.PI * 2);
+                ctx.fill();
+                break;
         }
     });
 }
@@ -2528,10 +2787,24 @@ function gameOver() {
         <h2>GAME OVER</h2>
         <p>You have been defeated...</p>
         <button onclick="location.href='/create'">New Character</button>
-        <button onclick="location.reload()">Try Again</button>
+        <button onclick="tryAgain()">Try Again</button>
     `;
 
     document.getElementById('game-container').appendChild(overlay);
+}
+
+/**
+ * Try again - restore HP to floor entry HP and reload.
+ */
+function tryAgain() {
+    // Restore HP to floor entry HP before reloading
+    fetch('/api/game', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'restore_floor_entry_hp' })
+    }).then(() => {
+        location.reload();
+    });
 }
 
 /**

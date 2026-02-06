@@ -165,6 +165,18 @@ process_action(#{<<"action">> := <<"reset">>}, _GameState) ->
     %% Reset to uninitialized state (forces character creation)
     {ok, game_state:default_state()};
 
+process_action(#{<<"action">> := <<"save_floor_entry_hp">>}, GameState) ->
+    %% Save current HP as floor entry HP (called when entering a new floor)
+    CurrentHp = maps:get(hp, GameState, 100),
+    NewState = GameState#{floor_entry_hp => CurrentHp},
+    {ok, NewState};
+
+process_action(#{<<"action">> := <<"restore_floor_entry_hp">>}, GameState) ->
+    %% Restore HP to floor entry HP (called on "Try Again")
+    FloorEntryHp = maps:get(floor_entry_hp, GameState, maps:get(max_hp, GameState, 100)),
+    NewState = GameState#{hp => FloorEntryHp},
+    {ok, NewState};
+
 process_action(_, _) ->
     {error, <<"Unknown action">>}.
 

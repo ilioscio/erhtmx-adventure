@@ -346,27 +346,38 @@ get_tile(_, _, _) ->
 %% Generate doors connecting maps
 %%--------------------------------------------------------------------
 generate_doors(Area, X, Y) ->
-    Doors = [],
-
-    %% North door (if Y > 0)
-    D1 = if Y > 0 -> [{north, Area, X, Y - 1, none}]; true -> [] end,
-
-    %% South door (if Y < 3)
-    D2 = if Y < 3 -> [{south, Area, X, Y + 1, none}]; true -> [] end,
-
-    %% West door (if X > 0)
-    D3 = if X > 0 -> [{west, Area, X - 1, Y, none}]; true -> [] end,
-
-    %% East door (if X < 3)
-    D4 = if X < 3 -> [{east, Area, X + 1, Y, none}]; true -> [] end,
-
-    %% Add locked doors for special locations
+    %% Get locked doors first to know which directions are blocked
     LockedDoors = get_locked_doors(Area, X, Y),
+    LockedDirections = [Dir || {Dir, _, _, _, _} <- LockedDoors],
 
-    Doors ++ D1 ++ D2 ++ D3 ++ D4 ++ LockedDoors.
+    %% North door (if Y > 0 and not locked)
+    D1 = case {Y > 0, lists:member(north, LockedDirections)} of
+        {true, false} -> [{north, Area, X, Y - 1, none}];
+        _ -> []
+    end,
+
+    %% South door (if Y < 3 and not locked)
+    D2 = case {Y < 3, lists:member(south, LockedDirections)} of
+        {true, false} -> [{south, Area, X, Y + 1, none}];
+        _ -> []
+    end,
+
+    %% West door (if X > 0 and not locked)
+    D3 = case {X > 0, lists:member(west, LockedDirections)} of
+        {true, false} -> [{west, Area, X - 1, Y, none}];
+        _ -> []
+    end,
+
+    %% East door (if X < 3 and not locked)
+    D4 = case {X < 3, lists:member(east, LockedDirections)} of
+        {true, false} -> [{east, Area, X + 1, Y, none}];
+        _ -> []
+    end,
+
+    D1 ++ D2 ++ D3 ++ D4 ++ LockedDoors.
 
 get_locked_doors(castle, 2, 2) ->
-    %% Castle inner room needs a key
+    %% Castle inner room needs a key to access stairs to dungeon
     [{east, castle, 3, 2, <<"castle_key">>}];
 get_locked_doors(dungeon, 2, 3) ->
     %% Dragon's lair needs final key (east leads to dragon)

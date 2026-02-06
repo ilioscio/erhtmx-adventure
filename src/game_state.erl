@@ -68,6 +68,8 @@ new_player(Name, Class) when is_binary(Name), is_atom(Class) ->
         class => Class,
         hp => MaxHp,
         max_hp => MaxHp,
+        %% Floor entry HP - used for "Try Again" after death
+        floor_entry_hp => MaxHp,
         %% Start in training grounds at map (0,0)
         area => training_grounds,
         map_x => 0,
@@ -304,9 +306,20 @@ prepare_value_for_json(V) ->
 restore_from_json(Json) when is_map(Json) ->
     %% Keys that should be atoms
     AtomKeys = [class, area],
+    %% Known state keys that need to be converted to atoms
+    KnownKeys = [name, class, hp, max_hp, area, map_x, map_y, tile_x, tile_y,
+                 inventory, keys, chests_opened, enemies_killed, dragon_defeated,
+                 initialized, floor_entry_hp],
     maps:fold(fun(K, V, Acc) ->
         %% Convert key to atom if it's a known key
-        Key = try binary_to_existing_atom(K, utf8) catch _:_ -> K end,
+        Key = case K of
+            _ when is_binary(K) ->
+                case lists:member(binary_to_atom(K, utf8), KnownKeys) of
+                    true -> binary_to_atom(K, utf8);
+                    false -> K
+                end;
+            _ -> K
+        end,
         Val = case lists:member(Key, AtomKeys) of
             true when is_binary(V) ->
                 try binary_to_existing_atom(V, utf8) catch _:_ -> V end;
