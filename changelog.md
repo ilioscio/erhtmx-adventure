@@ -1,9 +1,111 @@
 # Changelog
 
-## 2026-02-07 (Iteration 6) - Fix Inventory Persistence Race Condition
+## 2026-02-07 (Iteration 7) - Global API Request Queue for Race Condition Prevention
 
 ### Overview
-This iteration fixes the root cause of inventory items not persisting across page reloads.
+This iteration implements a comprehensive fix for inventory persistence issues by introducing a global API request queue that ensures all game state modifications happen sequentially.
+
+### Root Cause Analysis
+
+**Problem**: Items collected from chests were lost on page reload, even after Iteration 6's chained API call fix.
+
+**Root Cause Deeper Analysis**: Iteration 6 only chained related calls (e.g., `add_item` → `open_chest`), but it didn't address the broader issue: **any** concurrent API call could overwrite another. For example:
+1. Player opens chest → `add_item` sent (reads cookie with inventory=[sword])
+2. Enemy hits player → `take_damage` sent (also reads cookie with inventory=[sword])
+3. `add_item` completes → cookie updated to inventory=[sword, potion]
+4. `take_damage` completes → **overwrites** cookie with inventory=[sword]
+
+The problem is that **every API call reads the current cookie and returns a new one**. If multiple calls are in flight, the last one to complete wins.
+
+### Fix
+
+**Global API Request Queue**: Implemented a request queue that ensures all API calls execute one at a time:
+
+```javascript
+let apiQueue = [];
+let apiQueueRunning = false;
+
+function queueApiRequest(options) {
+    return new Promise((resolve, reject) => {
+        apiQueue.push({ options, resolve, reject });
+        processApiQueue();
+    });
+}
+
+function processApiQueue() {
+    if (apiQueueRunning || apiQueue.length === 0) return;
+
+    apiQueueRunning = true;
+    const { options, resolve, reject } = apiQueue.shift();
+
+    fetch('/api/game', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(options)
+    })
+    .then(response => response.json())
+    .then(data => {
+        resolve(data);
+        apiQueueRunning = false;
+        processApiQueue();
+    })
+    .catch(error => {
+        reject(error);
+        apiQueueRunning = false;
+        processApiQueue();
+    });
+}
+```
+
+### API Calls Updated
+
+All game state API calls now use `queueApiRequest()`:
+- `killEnemy()` - marks enemy as killed
+- `damagePlayer()` - updates HP
+- `transitionArea()` - saves floor entry HP
+- `saveAndLoadMap()` - saves position
+- `openChest()` - adds items/keys and marks chest opened
+- `tryAgain()` - restores floor entry HP
+- `victory()` - marks dragon defeated
+- `selectInventorySlot()` (number keys) - uses potions
+- Inventory slot click handler - uses potions
+
+### Files Modified
+
+**`priv/static/game.js`**:
+- Added API request queue (`queueApiRequest`, `processApiQueue`)
+- Converted all 10+ API call sites to use the queue
+- Preserved chaining for related operations (add_item → open_chest)
+
+### Why This Works
+
+1. **Sequential Execution**: Only one API call is in flight at any time
+2. **Cookie Consistency**: Each call reads the latest cookie state set by the previous call
+3. **No Lost Updates**: Updates can't be overwritten by concurrent requests
+
+### Testing Verification
+
+Tested with curl to verify server-side persistence works:
+- ✓ Character creation sets initial inventory correctly
+- ✓ Adding items updates cookie correctly
+- ✓ Simulated page reload shows correct inventory from cookie
+- ✓ Multiple sequential API calls preserve all state changes
+
+### Notes for Future Agents
+
+1. **Always use `queueApiRequest()`** for any API call that modifies game state
+2. **Never use raw `fetch('/api/game', ...)`** directly - this bypasses the queue
+3. **Chain related operations** using `.then()` on `queueApiRequest()` when needed
+4. **The queue is global** - all operations wait their turn, preventing any race conditions
+
+---
+
+## 2026-02-07 (Iteration 6) - Fix Inventory Persistence Race Condition (Partial Fix)
+
+### Overview
+This iteration attempted to fix inventory persistence by chaining related API calls.
+
+**Note**: This fix was incomplete - see Iteration 7 for the comprehensive solution.
 
 ### Root Cause Analysis
 
@@ -17,39 +119,11 @@ Both requests read the CURRENT cookie value and modify it independently. If `ope
 
 This is a classic "lost update" concurrency problem.
 
-### Fix
+### Fix (Partial)
 
-**Chained API calls**: Modified `openChest()` and `transitionArea()` functions to chain API calls using Promise `.then()`:
+**Chained API calls**: Modified `openChest()` and `transitionArea()` functions to chain API calls using Promise `.then()`.
 
-```javascript
-// Before (broken - race condition):
-fetch('/api/game', { action: 'add_item', item: contents.id });
-fetch('/api/game', { action: 'open_chest', chestId: chest.id });
-
-// After (fixed - chained):
-fetch('/api/game', { action: 'add_item', item: contents.id })
-    .then(() => fetch('/api/game', { action: 'open_chest', chestId: chest.id }));
-```
-
-### Files Modified
-
-**`priv/static/game.js`**:
-- `openChest()`: Chained `add_item`/`add_key` with `open_chest` to prevent race conditions
-- `transitionArea()`: Chained `save_floor_entry_hp` with `saveAndLoadMap` to prevent race conditions
-
-### Testing Verification
-
-All tests pass:
-- ✓ Character creation sets initial inventory correctly
-- ✓ Adding items updates cookie correctly
-- ✓ Opening chests preserves inventory from previous add_item
-- ✓ Page reload shows correct inventory from cookie
-
-### Notes for Future Agents
-
-1. **Always chain sequential API calls** when they modify the same cookie/state
-2. **Fire-and-forget fetch calls** can cause race conditions if multiple are made in quick succession
-3. **The cookie is the source of truth** - the server reads it, modifies it, and sets a new one. Concurrent modifications will cause lost updates.
+**Why this was incomplete**: Other fire-and-forget API calls (like `kill_enemy`, `take_damage`) could still race with chest operations and overwrite the cookie.
 
 ---
 

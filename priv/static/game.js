@@ -185,6 +185,61 @@ let transitioning = false; // Flag to prevent updates during map transitions
 let gamePaused = false; // Flag for pause menu
 let stairsTransitionCooldown = 0; // Cooldown to prevent instant re-trigger on stairs
 
+// ============================================================
+// API REQUEST QUEUE
+// ============================================================
+// All API calls that modify game state must go through this queue
+// to prevent race conditions where concurrent requests read stale
+// cookie values and overwrite each other's changes.
+
+let apiQueue = [];
+let apiQueueRunning = false;
+
+/**
+ * Queue an API request to be executed sequentially.
+ * This prevents race conditions where concurrent API calls
+ * read stale cookies and overwrite each other's changes.
+ *
+ * @param {Object} options - The fetch options (action, etc.)
+ * @returns {Promise} - Resolves when the request completes
+ */
+function queueApiRequest(options) {
+    return new Promise((resolve, reject) => {
+        apiQueue.push({ options, resolve, reject });
+        processApiQueue();
+    });
+}
+
+/**
+ * Process the next item in the API queue.
+ * Ensures only one request is in flight at a time.
+ */
+function processApiQueue() {
+    if (apiQueueRunning || apiQueue.length === 0) {
+        return;
+    }
+
+    apiQueueRunning = true;
+    const { options, resolve, reject } = apiQueue.shift();
+
+    fetch('/api/game', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(options)
+    })
+    .then(response => response.json())
+    .then(data => {
+        resolve(data);
+        apiQueueRunning = false;
+        processApiQueue(); // Process next in queue
+    })
+    .catch(error => {
+        reject(error);
+        apiQueueRunning = false;
+        processApiQueue(); // Continue processing even on error
+    });
+}
+
 // Weapon cooldowns (milliseconds)
 const WEAPON_COOLDOWNS = {
     sword: 400,
@@ -379,13 +434,7 @@ function selectInventorySlot(index) {
         showMessage('Used Health Potion (+30 HP)');
 
         // Save to server - use_potion action heals and removes from inventory
-        fetch('/api/game', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                action: 'use_potion'
-            })
-        });
+        queueApiRequest({ action: 'use_potion' });
     }
 }
 
@@ -1103,14 +1152,10 @@ function damageEnemy(enemy, damage) {
 function killEnemy(enemy) {
     enemies = enemies.filter(e => e.id !== enemy.id);
 
-    // Notify server
-    fetch('/api/game', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            action: 'kill_enemy',
-            enemyId: enemy.id
-        })
+    // Notify server (queued to prevent race conditions)
+    queueApiRequest({
+        action: 'kill_enemy',
+        enemyId: enemy.id
     });
 
     // Check if dragon was killed
@@ -1204,14 +1249,10 @@ function damagePlayer(damage, fromX, fromY) {
     // Update UI
     updateHpBar();
 
-    // Notify server
-    fetch('/api/game', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            action: 'take_damage',
-            damage: damage
-        })
+    // Notify server (queued to prevent race conditions)
+    queueApiRequest({
+        action: 'take_damage',
+        damage: damage
     });
 
     if (gameState.hp <= 0) {
@@ -1579,12 +1620,8 @@ function transitionArea(direction) {
     player.x = 7 * TILE_SIZE + TILE_SIZE / 2;
     player.y = 6 * TILE_SIZE + TILE_SIZE / 2;
 
-    // Chain: save floor HP first, then save map position
-    fetch('/api/game', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'save_floor_entry_hp' })
-    }).then(() => {
+    // Chain: save floor HP first, then save map position (queued to prevent race conditions)
+    queueApiRequest({ action: 'save_floor_entry_hp' }).then(() => {
         saveAndLoadMap(7, 6);
     });
 }
@@ -1596,18 +1633,14 @@ function saveAndLoadMap(entryTileX, entryTileY) {
     // Set transitioning flag to prevent updates during load
     transitioning = true;
 
-    // Save state
-    fetch('/api/game', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            action: 'move_map',
-            area: gameState.area,
-            mapX: gameState.mapX,
-            mapY: gameState.mapY,
-            tileX: entryTileX,
-            tileY: entryTileY
-        })
+    // Save state (queued to prevent race conditions)
+    queueApiRequest({
+        action: 'move_map',
+        area: gameState.area,
+        mapX: gameState.mapX,
+        mapY: gameState.mapY,
+        tileX: entryTileX,
+        tileY: entryTileY
     });
 
     // Load new map
@@ -1704,51 +1737,43 @@ function openChest(chest) {
     const contents = chest.contents;
 
     // First, add the item/key to state and save it
-    // Then mark the chest as opened (chained to avoid race condition)
-    let savePromise;
+    // All API calls are queued to prevent race conditions
+    // The queue ensures sequential execution so cookie updates don't conflict
 
     if (contents.type === 'key') {
         gameState.keys.push(contents.id);
         showMessage(`Got ${formatKeyName(contents.id)}!`);
 
-        savePromise = fetch('/api/game', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                action: 'add_key',
-                key: contents.id
-            })
+        queueApiRequest({
+            action: 'add_key',
+            key: contents.id
+        }).then(() => {
+            queueApiRequest({
+                action: 'open_chest',
+                chestId: chest.id
+            });
         });
     } else if (contents.type === 'item') {
         gameState.inventory.push(contents.id);
         showMessage(`Got ${formatItemName(contents.id)}!`);
         updateInventoryDisplay();
 
-        savePromise = fetch('/api/game', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                action: 'add_item',
-                item: contents.id
-            })
+        queueApiRequest({
+            action: 'add_item',
+            item: contents.id
+        }).then(() => {
+            queueApiRequest({
+                action: 'open_chest',
+                chestId: chest.id
+            });
         });
     } else {
         // No contents, just mark as opened
-        savePromise = Promise.resolve();
-    }
-
-    // Chain the open_chest call AFTER the item/key is saved
-    // This prevents race conditions where open_chest overwrites the item save
-    savePromise.then(() => {
-        return fetch('/api/game', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                action: 'open_chest',
-                chestId: chest.id
-            })
+        queueApiRequest({
+            action: 'open_chest',
+            chestId: chest.id
         });
-    });
+    }
 }
 
 /**
@@ -2812,12 +2837,8 @@ function gameOver() {
  * Try again - restore HP to floor entry HP and reload.
  */
 function tryAgain() {
-    // Restore HP to floor entry HP before reloading
-    fetch('/api/game', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'restore_floor_entry_hp' })
-    }).then(() => {
+    // Restore HP to floor entry HP before reloading (queued to prevent race conditions)
+    queueApiRequest({ action: 'restore_floor_entry_hp' }).then(() => {
         location.reload();
     });
 }
@@ -2828,12 +2849,8 @@ function tryAgain() {
 function victory() {
     gameRunning = false;
 
-    // Notify server
-    fetch('/api/game', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'defeat_dragon' })
-    });
+    // Notify server (queued to prevent race conditions)
+    queueApiRequest({ action: 'defeat_dragon' });
 
     // Create overlay
     const overlay = document.createElement('div');
@@ -2873,14 +2890,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 updateInventoryDisplay();
                 showMessage('Used Health Potion (+30 HP)');
 
-                // Save to server - use_potion action heals and removes from inventory
-                fetch('/api/game', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        action: 'use_potion'
-                    })
-                });
+                // Save to server (queued to prevent race conditions)
+                queueApiRequest({ action: 'use_potion' });
             }
         });
     });
