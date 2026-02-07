@@ -2,6 +2,8 @@
 _build/
 _checkouts/
 erl_crash.dump
+*.crashdump
+rebar3
 *.beam
 *.plt
 .rebar3/
