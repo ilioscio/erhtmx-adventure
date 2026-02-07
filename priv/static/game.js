@@ -225,7 +225,8 @@ function processApiQueue() {
     fetch('/api/game', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(options)
+        body: JSON.stringify(options),
+        credentials: 'same-origin'  // Required for browser to send/receive cookies
     })
     .then(response => response.json())
     .then(data => {
@@ -1644,7 +1645,9 @@ function saveAndLoadMap(entryTileX, entryTileY) {
     });
 
     // Load new map
-    fetch(`/api/map/${gameState.area}/${gameState.mapX}/${gameState.mapY}`)
+    fetch(`/api/map/${gameState.area}/${gameState.mapX}/${gameState.mapY}`, {
+        credentials: 'same-origin'  // Ensure cookies are sent with request
+    })
         .then(res => res.json())
         .then(data => {
             mapTiles = data.tiles;

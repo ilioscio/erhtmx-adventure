@@ -1,5 +1,70 @@
 # Changelog
 
+## 2026-02-07 (Iteration 8) - Fix Inventory Persistence via Fetch Credentials
+
+### Overview
+This iteration fixes the inventory persistence bug where items collected from chests were lost on page reload, despite the server correctly updating the cookie.
+
+### Root Cause Analysis
+
+**Problem**: Items collected from chests were not persisted across page reloads in the browser, even though:
+1. The server correctly added items to the game state
+2. The server correctly encoded and set the cookie
+3. The server correctly read and restored state on subsequent requests
+
+**Root Cause**: The `fetch()` API calls in `processApiQueue()` did not include `credentials: 'same-origin'`.
+
+By default, the Fetch API does NOT send or receive cookies. The `credentials` option must be set to:
+- `'same-origin'` - Send/receive cookies for same-origin requests
+- `'include'` - Send/receive cookies for all requests (cross-origin too)
+
+Without this option, the browser:
+1. Did NOT send the existing `game_state` cookie with API requests
+2. Did NOT process the `Set-Cookie` header from API responses
+
+This meant that while the server was correctly updating the cookie, the browser was ignoring the `Set-Cookie` header, so subsequent page reloads would show the stale cookie value.
+
+### Fix
+
+Added `credentials: 'same-origin'` to all `fetch()` calls:
+
+```javascript
+// In processApiQueue()
+fetch('/api/game', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options),
+    credentials: 'same-origin'  // Required for browser to send/receive cookies
+})
+
+// In saveAndLoadMap()
+fetch(`/api/map/${gameState.area}/${gameState.mapX}/${gameState.mapY}`, {
+    credentials: 'same-origin'  // Ensure cookies are sent with request
+})
+```
+
+### Files Modified
+
+**`priv/static/game.js`**:
+- Added `credentials: 'same-origin'` to `fetch()` call in `processApiQueue()` (line 229)
+- Added `credentials: 'same-origin'` to `fetch()` call in `saveAndLoadMap()` (line 1649)
+
+### Testing Verification
+
+Tested with curl to verify server-side persistence works:
+- ✓ Character creation sets initial inventory correctly
+- ✓ Adding items via API updates cookie correctly
+- ✓ Page reload shows correct inventory from cookie
+- ✓ Multiple items persist correctly across reloads
+
+### Notes for Future Agents
+
+1. **Always use `credentials: 'same-origin'`** in fetch calls when cookies are involved
+2. The Fetch API default behavior is to NOT handle cookies - this is a common gotcha
+3. Server-side persistence was working correctly all along; the issue was purely client-side
+
+---
+
 ## 2026-02-07 (Iteration 7) - Global API Request Queue for Race Condition Prevention
 
 ### Overview
