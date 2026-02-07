@@ -47,18 +47,36 @@ start(_StartType, _StartArgs) ->
         ]}
     ]),
 
-    %% Start Cowboy HTTP server on port 8080
-    {ok, _} = cowboy:start_clear(
+    %% Get port from environment or use default
+    Port = application:get_env(erhtmx_adventure, port, 8080),
+
+    %% First, ensure any existing listener with this name is stopped
+    %% This handles the case where the app is being restarted
+    _ = cowboy:stop_listener(http_listener),
+
+    %% Start Cowboy HTTP server
+    case cowboy:start_clear(
         http_listener,
-        [{port, 8080}],
+        [{port, Port}],
         #{env => #{dispatch => Dispatch}}
-    ),
-
-    io:format("~n=== ERHTMX Adventure Server Started ===~n"),
-    io:format("Visit http://localhost:8080 to play!~n~n"),
-
-    %% Start the supervisor
-    erhtmx_adventure_sup:start_link().
+    ) of
+        {ok, _} ->
+            io:format("~n=== ERHTMX Adventure Server Started ===~n"),
+            io:format("Visit http://localhost:~p to play!~n~n", [Port]),
+            %% Start the supervisor
+            erhtmx_adventure_sup:start_link();
+        {error, eaddrinuse} ->
+            io:format("~n~n*** ERROR: Port ~p is already in use! ***~n", [Port]),
+            io:format("~nAnother process is using this port. To fix this:~n"),
+            io:format("  1. Find the process: lsof -i :~p~n", [Port]),
+            io:format("  2. Kill it: kill <PID>~n"),
+            io:format("  3. Or use a different port by setting the 'port' config~n~n"),
+            %% Return error to prevent app from starting in broken state
+            {error, {port_in_use, Port}};
+        {error, Reason} ->
+            io:format("~nFailed to start HTTP server: ~p~n", [Reason]),
+            {error, Reason}
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc Stops the application.

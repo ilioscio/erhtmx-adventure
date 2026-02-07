@@ -378,13 +378,12 @@ function selectInventorySlot(index) {
         updateInventoryDisplay();
         showMessage('Used Health Potion (+30 HP)');
 
-        // Save to server
+        // Save to server - use_potion action heals and removes from inventory
         fetch('/api/game', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                action: 'heal',
-                amount: 30
+                action: 'use_potion'
             })
         });
     }
@@ -2858,13 +2857,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 updateInventoryDisplay();
                 showMessage('Used Health Potion (+30 HP)');
 
-                // Save to server
+                // Save to server - use_potion action heals and removes from inventory
                 fetch('/api/game', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        action: 'heal',
-                        amount: 30
+                        action: 'use_potion'
                     })
                 });
             }

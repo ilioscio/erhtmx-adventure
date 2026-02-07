@@ -120,6 +120,16 @@ process_action(#{<<"action">> := <<"add_item">>, <<"item">> := Item}, GameState)
     NewState = game_state:add_item(GameState, Item),
     {ok, NewState};
 
+process_action(#{<<"action">> := <<"remove_item">>, <<"item">> := Item}, GameState) ->
+    NewState = game_state:remove_item(GameState, Item),
+    {ok, NewState};
+
+process_action(#{<<"action">> := <<"use_potion">>}, GameState) ->
+    %% Use a health potion: heal and remove from inventory
+    NewState = game_state:heal(GameState, 30),
+    NewState2 = game_state:remove_item(NewState, <<"health_potion">>),
+    {ok, NewState2};
+
 process_action(#{<<"action">> := <<"add_key">>, <<"key">> := KeyId}, GameState) ->
     NewState = game_state:add_key(GameState, KeyId),
     {ok, NewState};
