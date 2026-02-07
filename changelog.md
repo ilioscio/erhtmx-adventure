@@ -1,5 +1,58 @@
 # Changelog
 
+## 2026-02-07 (Iteration 6) - Fix Inventory Persistence Race Condition
+
+### Overview
+This iteration fixes the root cause of inventory items not persisting across page reloads.
+
+### Root Cause Analysis
+
+**Problem**: Items collected from chests were not saved to cookies, causing them to be lost on page reload.
+
+**Root Cause**: Race condition in concurrent API calls. When opening a chest with an item:
+1. `add_item` API call was made
+2. `open_chest` API call was made immediately after (without waiting)
+
+Both requests read the CURRENT cookie value and modify it independently. If `open_chest` completed before `add_item`, the cookie from `open_chest` would overwrite the `add_item` cookie, causing the inventory update to be lost.
+
+This is a classic "lost update" concurrency problem.
+
+### Fix
+
+**Chained API calls**: Modified `openChest()` and `transitionArea()` functions to chain API calls using Promise `.then()`:
+
+```javascript
+// Before (broken - race condition):
+fetch('/api/game', { action: 'add_item', item: contents.id });
+fetch('/api/game', { action: 'open_chest', chestId: chest.id });
+
+// After (fixed - chained):
+fetch('/api/game', { action: 'add_item', item: contents.id })
+    .then(() => fetch('/api/game', { action: 'open_chest', chestId: chest.id }));
+```
+
+### Files Modified
+
+**`priv/static/game.js`**:
+- `openChest()`: Chained `add_item`/`add_key` with `open_chest` to prevent race conditions
+- `transitionArea()`: Chained `save_floor_entry_hp` with `saveAndLoadMap` to prevent race conditions
+
+### Testing Verification
+
+All tests pass:
+- ✓ Character creation sets initial inventory correctly
+- ✓ Adding items updates cookie correctly
+- ✓ Opening chests preserves inventory from previous add_item
+- ✓ Page reload shows correct inventory from cookie
+
+### Notes for Future Agents
+
+1. **Always chain sequential API calls** when they modify the same cookie/state
+2. **Fire-and-forget fetch calls** can cause race conditions if multiple are made in quick succession
+3. **The cookie is the source of truth** - the server reads it, modifies it, and sets a new one. Concurrent modifications will cause lost updates.
+
+---
+
 ## 2026-02-06 (Iteration 5) - State Persistence Fix: {badkey,hp} Error and Item Saving
 
 ### Overview

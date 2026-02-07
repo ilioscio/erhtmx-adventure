@@ -1561,12 +1561,8 @@ function transitionArea(direction) {
     }
 
     // Save current HP as floor entry HP (for "Try Again" functionality)
+    // Chain API calls to avoid race conditions
     gameState.floorEntryHp = gameState.hp;
-    fetch('/api/game', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'save_floor_entry_hp' })
-    });
 
     gameState.area = newArea;
     gameState.mapX = newX;
@@ -1580,9 +1576,17 @@ function transitionArea(direction) {
 
     // Position player slightly offset from stairs (tile 7,6 instead of 8,6)
     // This prevents immediate re-transition
-    saveAndLoadMap(7, 6);
     player.x = 7 * TILE_SIZE + TILE_SIZE / 2;
     player.y = 6 * TILE_SIZE + TILE_SIZE / 2;
+
+    // Chain: save floor HP first, then save map position
+    fetch('/api/game', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'save_floor_entry_hp' })
+    }).then(() => {
+        saveAndLoadMap(7, 6);
+    });
 }
 
 /**
@@ -1692,16 +1696,22 @@ function checkChestInteraction() {
 
 /**
  * Open a chest and collect its contents.
+ * API calls are chained to avoid race conditions that would cause lost updates.
  */
 function openChest(chest) {
     chest.opened = true;
 
     const contents = chest.contents;
+
+    // First, add the item/key to state and save it
+    // Then mark the chest as opened (chained to avoid race condition)
+    let savePromise;
+
     if (contents.type === 'key') {
         gameState.keys.push(contents.id);
         showMessage(`Got ${formatKeyName(contents.id)}!`);
 
-        fetch('/api/game', {
+        savePromise = fetch('/api/game', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1714,7 +1724,7 @@ function openChest(chest) {
         showMessage(`Got ${formatItemName(contents.id)}!`);
         updateInventoryDisplay();
 
-        fetch('/api/game', {
+        savePromise = fetch('/api/game', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1722,16 +1732,22 @@ function openChest(chest) {
                 item: contents.id
             })
         });
+    } else {
+        // No contents, just mark as opened
+        savePromise = Promise.resolve();
     }
 
-    // Mark chest as opened on server
-    fetch('/api/game', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            action: 'open_chest',
-            chestId: chest.id
-        })
+    // Chain the open_chest call AFTER the item/key is saved
+    // This prevents race conditions where open_chest overwrites the item save
+    savePromise.then(() => {
+        return fetch('/api/game', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'open_chest',
+                chestId: chest.id
+            })
+        });
     });
 }
 
