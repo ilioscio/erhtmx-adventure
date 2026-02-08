@@ -242,6 +242,9 @@ EOF
               wantedBy = [ "multi-user.target" ];
               after = [ "network.target" ];
 
+              # Erlang release scripts need standard Unix tools (awk, sed, grep, etc.)
+              path = with pkgs; [ gawk gnused gnugrep coreutils bash ];
+
               environment = {
                 PORT = toString cfg.port;
                 BASE_PATH = cfg.basePath;
