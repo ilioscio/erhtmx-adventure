@@ -286,13 +286,6 @@ EOF
                   enableACME = cfg.nginx.enableACME;
                   locations."/" = {
                     proxyPass = "http://127.0.0.1:${toString cfg.port}";
-                    proxyWebsockets = true;
-                    extraConfig = ''
-                      proxy_set_header Host $host;
-                      proxy_set_header X-Real-IP $remote_addr;
-                      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                      proxy_set_header X-Forwarded-Proto $scheme;
-                    '';
                   };
                 };
               })
@@ -307,13 +300,6 @@ EOF
                   # Proxy with prefix stripping (trailing slash on proxy_pass)
                   locations."${cfg.basePath}/" = {
                     proxyPass = "http://127.0.0.1:${toString cfg.port}/";
-                    proxyWebsockets = true;
-                    extraConfig = ''
-                      proxy_set_header Host $host;
-                      proxy_set_header X-Real-IP $remote_addr;
-                      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                      proxy_set_header X-Forwarded-Proto $scheme;
-                    '';
                   };
                 };
               })
