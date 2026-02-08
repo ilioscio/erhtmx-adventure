@@ -26,6 +26,14 @@
 %% @end
 %%--------------------------------------------------------------------
 start(_StartType, _StartArgs) ->
+    %% Read BASE_PATH from OS environment (e.g., "/adventure" or "")
+    BasePath = case os:getenv("BASE_PATH") of
+        false -> <<>>;
+        "" -> <<>>;
+        BP -> list_to_binary(BP)
+    end,
+    application:set_env(erhtmx_adventure, base_path, BasePath),
+
     %% Define the routes for our HTTP server
     %% Each route maps a URL path to a handler module
     Dispatch = cowboy_router:compile([
@@ -47,8 +55,11 @@ start(_StartType, _StartArgs) ->
         ]}
     ]),
 
-    %% Get port from environment or use default
-    Port = application:get_env(erhtmx_adventure, port, 8080),
+    %% Get port from OS environment or application env or default
+    Port = case os:getenv("PORT") of
+        false -> application:get_env(erhtmx_adventure, port, 8080);
+        PortStr -> list_to_integer(PortStr)
+    end,
 
     %% First, ensure any existing listener with this name is stopped
     %% This handles the case where the app is being restarted

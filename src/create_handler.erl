@@ -22,9 +22,14 @@
 %% @end
 %%--------------------------------------------------------------------
 init(Req0, State) ->
+    BasePath = game_handler:get_base_path(),
+    CookiePath = case BasePath of
+        <<>> -> <<"/">>;
+        _ -> BasePath
+    end,
     case cowboy_req:method(Req0) of
         <<"GET">> ->
-            Html = render_create_page(),
+            Html = render_create_page(BasePath),
             Req = cowboy_req:reply(200, #{
                 <<"content-type">> => <<"text/html">>
             }, Html, Req0),
@@ -59,12 +64,12 @@ init(Req0, State) ->
                 <<"game_state">>,
                 EncodedState,
                 Req1,
-                #{path => <<"/">>, max_age => 31536000}
+                #{path => CookiePath, max_age => 31536000}
             ),
 
             %% Redirect to game
             Req = cowboy_req:reply(302, #{
-                <<"location">> => <<"/">>
+                <<"location">> => <<BasePath/binary, "/">>
             }, <<>>, Req2),
             {ok, Req, State}
     end.
@@ -73,21 +78,22 @@ init(Req0, State) ->
 %% @doc Renders the character creation HTML page.
 %% @end
 %%--------------------------------------------------------------------
-render_create_page() ->
+render_create_page(BasePath) ->
+    iolist_to_binary([
     <<"<!DOCTYPE html>
 <html lang=\"en\">
 <head>
     <meta charset=\"UTF-8\">
     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
     <title>Create Character - ERHTMX Adventure</title>
-    <link rel=\"stylesheet\" href=\"/static/style.css\">
+    <link rel=\"stylesheet\" href=\"">>, BasePath, <<"/static/style.css\">
 </head>
 <body class=\"create-page\">
     <div id=\"create-container\">
         <h1>ERHTMX Adventure</h1>
         <h2>Create Your Character</h2>
 
-        <form method=\"POST\" action=\"/create\" id=\"create-form\">
+        <form method=\"POST\" action=\"">>, BasePath, <<"/create\" id=\"create-form\">
             <div class=\"form-group\">
                 <label for=\"name\">Character Name</label>
                 <input type=\"text\" id=\"name\" name=\"name\" maxlength=\"20\"
@@ -153,4 +159,5 @@ render_create_page() ->
         </form>
     </div>
 </body>
-</html>">>.
+</html>">>
+    ]).

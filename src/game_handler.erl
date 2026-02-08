@@ -14,7 +14,7 @@
 -module(game_handler).
 -behaviour(cowboy_handler).
 
--export([init/2]).
+-export([init/2, get_base_path/0]).
 
 %%--------------------------------------------------------------------
 %% @doc Handles GET requests to the root path.
@@ -43,11 +43,12 @@ init(Req0, State) ->
     end,
 
     %% Check if player has been created
+    BasePath = get_base_path(),
     case maps:get(initialized, GameState, false) of
         false ->
             %% Redirect to character creation
             Req = cowboy_req:reply(302, #{
-                <<"location">> => <<"/create">>
+                <<"location">> => <<BasePath/binary, "/create">>
             }, <<>>, Req0),
             {ok, Req, State};
         _ ->
@@ -64,6 +65,7 @@ init(Req0, State) ->
 %% @end
 %%--------------------------------------------------------------------
 render_game_page(GameState) ->
+    BasePath = get_base_path(),
     Name = maps:get(name, GameState, <<"Hero">>),
     Class = maps:get(class, GameState, warrior_sword),
     HP = maps:get(hp, GameState, 100),
@@ -113,7 +115,7 @@ render_game_page(GameState) ->
     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
     <title>ERHTMX Adventure</title>
     <script src=\"https://unpkg.com/htmx.org@1.9.10\"></script>
-    <link rel=\"stylesheet\" href=\"/static/style.css\">
+    <link rel=\"stylesheet\" href=\"">>, BasePath, <<"/static/style.css\">
 </head>
 <body>
     <div id=\"game-container\" class=\"area-">>, atom_to_binary(Area, utf8), <<"\">
@@ -165,6 +167,7 @@ render_game_page(GameState) ->
 
     <!-- Game State (passed to JavaScript) -->
     <script>
+        window.BASE_PATH = \"">>, BasePath, <<"\";
         window.GAME_STATE = {
             playerName: \"">>, Name, <<"\",
             playerClass: \"">>, atom_to_binary(Class, utf8), <<"\",
@@ -185,7 +188,7 @@ render_game_page(GameState) ->
             openedChests: ">>, ChestsOpenedJson, <<"
         };
     </script>
-    <script src=\"/static/game.js\"></script>
+    <script src=\"">>, BasePath, <<"/static/game.js\"></script>
 </body>
 </html>">>
     ]).
@@ -286,6 +289,16 @@ format_contents({item, ItemName}) -> #{type => <<"item">>, id => ItemName}.
 %% Handles both tuple format (from new entries) and list format (from JSON restoration).
 %% @end
 %%--------------------------------------------------------------------
+%%--------------------------------------------------------------------
+%% @doc Returns the configured base path (e.g., <<"/adventure">> or <<>>).
+%% @end
+%%--------------------------------------------------------------------
+get_base_path() ->
+    case application:get_env(erhtmx_adventure, base_path) of
+        {ok, Path} -> Path;
+        undefined -> <<>>
+    end.
+
 format_chests_opened(ChestsOpened, Area, MapX, MapY) ->
     lists:filtermap(fun
         ({A, MX, MY, ChestId}) when A == Area, MX == MapX, MY == MapY -> {true, ChestId};

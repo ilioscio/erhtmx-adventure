@@ -15,6 +15,9 @@
 // GAME CONSTANTS
 // ============================================================
 
+// Base path for reverse proxy sub-path support (set by server in HTML)
+const BASE_PATH = window.BASE_PATH || '';
+
 const TILE_SIZE = 40;
 const MAP_WIDTH = 16;
 const MAP_HEIGHT = 12;
@@ -222,7 +225,7 @@ function processApiQueue() {
     apiQueueRunning = true;
     const { options, resolve, reject } = apiQueue.shift();
 
-    fetch('/api/game', {
+    fetch(BASE_PATH + '/api/game', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(options),
@@ -474,7 +477,7 @@ function restartGame() {
  * Quit to character creation.
  */
 function quitGame() {
-    location.href = '/create';
+    location.href = BASE_PATH + '/create';
 }
 
 /**
@@ -1645,7 +1648,7 @@ function saveAndLoadMap(entryTileX, entryTileY) {
     });
 
     // Load new map
-    fetch(`/api/map/${gameState.area}/${gameState.mapX}/${gameState.mapY}`, {
+    fetch(`${BASE_PATH}/api/map/${gameState.area}/${gameState.mapX}/${gameState.mapY}`, {
         credentials: 'same-origin'  // Ensure cookies are sent with request
     })
         .then(res => res.json())
@@ -2829,7 +2832,7 @@ function gameOver() {
     overlay.innerHTML = `
         <h2>GAME OVER</h2>
         <p>You have been defeated...</p>
-        <button onclick="location.href='/create'">New Character</button>
+        <button onclick="location.href=BASE_PATH+'/create'">New Character</button>
         <button onclick="tryAgain()">Try Again</button>
     `;
 
@@ -2862,7 +2865,7 @@ function victory() {
     overlay.innerHTML = `
         <h2>VICTORY!</h2>
         <p>You have defeated the dragon and saved the realm!</p>
-        <button onclick="location.href='/create'">New Adventure</button>
+        <button onclick="location.href=BASE_PATH+'/create'">New Adventure</button>
     `;
 
     document.getElementById('game-container').appendChild(overlay);

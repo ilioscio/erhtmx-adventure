@@ -72,6 +72,12 @@ handle_post(Req0, State) ->
             {error, <<"Invalid request">>}
     end,
 
+    BasePath = game_handler:get_base_path(),
+    CookiePath = case BasePath of
+        <<>> -> <<"/">>;
+        _ -> BasePath
+    end,
+
     case Result of
         {ok, NewState} ->
             %% Encode and set cookie
@@ -83,7 +89,7 @@ handle_post(Req0, State) ->
                 <<"game_state">>,
                 EncodedState,
                 Req1,
-                #{path => <<"/">>, max_age => 31536000}
+                #{path => CookiePath, max_age => 31536000}
             ),
 
             Req = cowboy_req:reply(200, #{

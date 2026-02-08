@@ -204,6 +204,13 @@ EOF
               description = "Whether to open the firewall port";
             };
 
+            basePath = lib.mkOption {
+              type = lib.types.str;
+              default = "";
+              description = "Base URL path for the game (e.g., /adventure). Empty means serve at root of the virtual host.";
+              example = "/adventure";
+            };
+
             nginx = {
               enable = lib.mkEnableOption "nginx reverse proxy for ERHTMX Adventure";
 
@@ -237,6 +244,7 @@ EOF
 
               environment = {
                 PORT = toString cfg.port;
+                BASE_PATH = cfg.basePath;
               };
 
               serviceConfig = {
@@ -265,23 +273,48 @@ EOF
 
             networking.firewall.allowedTCPPorts = lib.mkIf cfg.openFirewall [ cfg.port ];
 
-            services.nginx = lib.mkIf cfg.nginx.enable {
-              enable = true;
-              virtualHosts.${cfg.nginx.virtualHost} = {
-                forceSSL = cfg.nginx.forceSSL;
-                enableACME = cfg.nginx.enableACME;
-                locations."/" = {
-                  proxyPass = "http://127.0.0.1:${toString cfg.port}";
-                  proxyWebsockets = true;
-                  extraConfig = ''
-                    proxy_set_header Host $host;
-                    proxy_set_header X-Real-IP $remote_addr;
-                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                    proxy_set_header X-Forwarded-Proto $scheme;
-                  '';
+            services.nginx = lib.mkIf cfg.nginx.enable (lib.mkMerge [
+              { enable = true; }
+
+              # When basePath is empty: dedicated virtual host mode
+              (lib.mkIf (cfg.basePath == "") {
+                virtualHosts.${cfg.nginx.virtualHost} = {
+                  forceSSL = cfg.nginx.forceSSL;
+                  enableACME = cfg.nginx.enableACME;
+                  locations."/" = {
+                    proxyPass = "http://127.0.0.1:${toString cfg.port}";
+                    proxyWebsockets = true;
+                    extraConfig = ''
+                      proxy_set_header Host $host;
+                      proxy_set_header X-Real-IP $remote_addr;
+                      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                      proxy_set_header X-Forwarded-Proto $scheme;
+                    '';
+                  };
                 };
-              };
-            };
+              })
+
+              # When basePath is set: sub-path mode on existing virtual host
+              (lib.mkIf (cfg.basePath != "") {
+                virtualHosts.${cfg.nginx.virtualHost} = {
+                  # Redirect bare path to path with trailing slash
+                  locations."= ${cfg.basePath}" = {
+                    return = "301 ${cfg.basePath}/";
+                  };
+                  # Proxy with prefix stripping (trailing slash on proxy_pass)
+                  locations."${cfg.basePath}/" = {
+                    proxyPass = "http://127.0.0.1:${toString cfg.port}/";
+                    proxyWebsockets = true;
+                    extraConfig = ''
+                      proxy_set_header Host $host;
+                      proxy_set_header X-Real-IP $remote_addr;
+                      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                      proxy_set_header X-Forwarded-Proto $scheme;
+                    '';
+                  };
+                };
+              })
+            ]);
           };
         };
     };
