@@ -696,8 +696,8 @@ body {
 
 /* Virtual Joystick */
 .joystick-container {
-    width: 120px;
-    height: 120px;
+    width: 180px;
+    height: 180px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -705,8 +705,8 @@ body {
 }
 
 .joystick-base {
-    width: 120px;
-    height: 120px;
+    width: 180px;
+    height: 180px;
     background: radial-gradient(circle, #2a2a3a 0%, #1a1a2a 70%, #0a0a1a 100%);
     border: 3px solid #0a0a1a;
     border-radius: 50%;
@@ -720,8 +720,8 @@ body {
 }
 
 .joystick-knob {
-    width: 50px;
-    height: 50px;
+    width: 70px;
+    height: 70px;
     background: radial-gradient(circle at 30% 30%, #5a5a6a 0%, #3a3a4a 50%, #2a2a3a 100%);
     border: 2px solid #1a1a2a;
     border-radius: 50%;
@@ -775,18 +775,18 @@ body {
 /* A/B Button Container */
 .ab-container {
     display: flex;
-    gap: 20px;
+    gap: 24px;
     transform: rotate(-20deg);
 }
 
 .gamepad-btn.a-btn,
 .gamepad-btn.b-btn {
-    width: 64px;
-    height: 64px;
+    width: 90px;
+    height: 90px;
     border-radius: 50%;
-    border: 3px solid #1a0a0a;
+    border: 4px solid #1a0a0a;
     font-family: inherit;
-    font-size: 20px;
+    font-size: 28px;
     font-weight: bold;
     color: #fff;
     cursor: pointer;
@@ -830,40 +830,43 @@ body {
     }
 
     .gamepad-body {
-        padding: calc(10 * 100vw / 648);
-        border-radius: calc(12 * 100vw / 648);
+        padding: 2vw;
+        border-radius: 2vw;
     }
 
+    /* Joystick takes ~42% of screen width */
     .joystick-container {
-        width: calc(120 * 100vw / 648);
-        height: calc(120 * 100vw / 648);
+        width: 42vw;
+        height: 42vw;
     }
 
     .joystick-base {
-        width: calc(120 * 100vw / 648);
-        height: calc(120 * 100vw / 648);
+        width: 42vw;
+        height: 42vw;
     }
 
     .joystick-knob {
-        width: calc(50 * 100vw / 648);
-        height: calc(50 * 100vw / 648);
+        width: 16vw;
+        height: 16vw;
     }
 
+    /* Start button stays small in center */
     .gamepad-btn.start-btn {
-        width: calc(80 * 100vw / 648);
-        height: calc(30 * 100vw / 648);
-        font-size: calc(11 * 100vw / 648);
-        border-radius: calc(15 * 100vw / 648);
+        width: 12vw;
+        height: 5vw;
+        font-size: 2vw;
+        border-radius: 2.5vw;
     }
 
+    /* A/B buttons - each ~18vw, together ~42% of screen */
     .ab-container {
-        gap: calc(20 * 100vw / 648);
+        gap: 4vw;
     }
 
     .gamepad-btn.a-btn,
     .gamepad-btn.b-btn {
-        width: calc(64 * 100vw / 648);
-        height: calc(64 * 100vw / 648);
-        font-size: calc(20 * 100vw / 648);
+        width: 18vw;
+        height: 18vw;
+        font-size: 5vw;
     }
 }

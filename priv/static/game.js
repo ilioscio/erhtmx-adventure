@@ -36,7 +36,7 @@ const TILE_STAIRS_DOWN = 7;
 
 // Player size and speed
 const PLAYER_SIZE = 32;
-const PLAYER_SPEED = 4;
+const PLAYER_SPEED = 2.4; // Reduced by 40% for better mobile control
 
 // Enemy constants
 const ENEMY_SIZE = 28;
@@ -482,12 +482,19 @@ function setupVirtualGamepad() {
 function setupJoystick() {
     const container = document.getElementById('joystick-container');
     const knob = document.getElementById('joystick-knob');
-    if (!container || !knob) return;
+    const base = document.querySelector('.joystick-base');
+    if (!container || !knob || !base) return;
 
-    const baseRadius = 60; // Half of joystick-base size (120px)
-    const knobRadius = 25; // Half of knob size (50px)
-    const maxDistance = baseRadius - knobRadius; // Max distance knob can move from center
-    const deadzone = 10; // Minimum distance to register input
+    // Calculate sizes dynamically from actual element dimensions
+    function getJoystickDimensions() {
+        const baseRect = base.getBoundingClientRect();
+        const knobRect = knob.getBoundingClientRect();
+        const baseRadius = baseRect.width / 2;
+        const knobRadius = knobRect.width / 2;
+        const maxDistance = baseRadius - knobRadius;
+        const deadzone = baseRadius * 0.1; // 10% of base radius as deadzone
+        return { baseRadius, knobRadius, maxDistance, deadzone };
+    }
 
     function getJoystickCenter() {
         const rect = container.getBoundingClientRect();
@@ -499,6 +506,7 @@ function setupJoystick() {
 
     function updateJoystick(touchX, touchY) {
         const center = getJoystickCenter();
+        const { maxDistance, deadzone } = getJoystickDimensions();
         let dx = touchX - center.x;
         let dy = touchY - center.y;
         const distance = Math.hypot(dx, dy);
