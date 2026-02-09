@@ -169,13 +169,11 @@ render_game_page(GameState) ->
     <!-- Virtual Gamepad (for touch devices) -->
     <div id=\"virtual-gamepad\" class=\"hidden\">
         <div class=\"gamepad-body\">
-            <!-- D-Pad (Left side) -->
-            <div class=\"dpad-container\">
-                <button class=\"dpad-btn dpad-up\" data-key=\"arrowup\"></button>
-                <button class=\"dpad-btn dpad-left\" data-key=\"arrowleft\"></button>
-                <button class=\"dpad-btn dpad-center\"></button>
-                <button class=\"dpad-btn dpad-right\" data-key=\"arrowright\"></button>
-                <button class=\"dpad-btn dpad-down\" data-key=\"arrowdown\"></button>
+            <!-- Virtual Joystick (Left side) -->
+            <div class=\"joystick-container\" id=\"joystick-container\">
+                <div class=\"joystick-base\">
+                    <div class=\"joystick-knob\" id=\"joystick-knob\"></div>
+                </div>
             </div>
 
             <!-- Start Button (Center) -->

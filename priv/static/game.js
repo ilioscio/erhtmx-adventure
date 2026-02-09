@@ -413,6 +413,8 @@ function setupInput() {
 
 let gamepadVisible = false;
 let gamepadUserToggled = false; // Track if user manually toggled
+let joystickActive = false;
+let joystickTouchId = null;
 
 /**
  * Check if device has touch capability.
@@ -430,7 +432,10 @@ function setupVirtualGamepad() {
     const gamepad = document.getElementById('virtual-gamepad');
     if (!gamepad) return;
 
-    // Get all gamepad buttons
+    // Set up joystick
+    setupJoystick();
+
+    // Set up A/B/Start buttons
     const buttons = gamepad.querySelectorAll('[data-key]');
 
     buttons.forEach(button => {
@@ -463,38 +468,164 @@ function setupVirtualGamepad() {
             keysHeld.delete(key);
             button.classList.remove('pressed');
         }, { passive: false });
-
-        // Handle touch move to support sliding between d-pad buttons
-        button.addEventListener('touchmove', (e) => {
-            e.preventDefault();
-        }, { passive: false });
     });
-
-    // Handle multi-touch for d-pad (diagonal movement)
-    const dpadButtons = gamepad.querySelectorAll('.dpad-btn[data-key]');
-    gamepad.addEventListener('touchmove', (e) => {
-        // Clear all d-pad keys first, then re-add based on current touches
-        const dpadKeys = ['arrowup', 'arrowdown', 'arrowleft', 'arrowright'];
-        dpadKeys.forEach(k => keysHeld.delete(k));
-        dpadButtons.forEach(btn => btn.classList.remove('pressed'));
-
-        // Check each touch point
-        Array.from(e.touches).forEach(touch => {
-            const element = document.elementFromPoint(touch.clientX, touch.clientY);
-            if (element && element.classList.contains('dpad-btn')) {
-                const key = element.getAttribute('data-key');
-                if (key) {
-                    keysHeld.add(key);
-                    element.classList.add('pressed');
-                }
-            }
-        });
-    }, { passive: false });
 
     // Auto-show gamepad on touch devices (unless user manually hid it)
     if (isTouchDevice() && !gamepadUserToggled) {
         showGamepad();
     }
+}
+
+/**
+ * Set up the virtual joystick for movement.
+ */
+function setupJoystick() {
+    const container = document.getElementById('joystick-container');
+    const knob = document.getElementById('joystick-knob');
+    if (!container || !knob) return;
+
+    const baseRadius = 60; // Half of joystick-base size (120px)
+    const knobRadius = 25; // Half of knob size (50px)
+    const maxDistance = baseRadius - knobRadius; // Max distance knob can move from center
+    const deadzone = 10; // Minimum distance to register input
+
+    function getJoystickCenter() {
+        const rect = container.getBoundingClientRect();
+        return {
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2
+        };
+    }
+
+    function updateJoystick(touchX, touchY) {
+        const center = getJoystickCenter();
+        let dx = touchX - center.x;
+        let dy = touchY - center.y;
+        const distance = Math.hypot(dx, dy);
+
+        // Clamp to max distance
+        if (distance > maxDistance) {
+            dx = (dx / distance) * maxDistance;
+            dy = (dy / distance) * maxDistance;
+        }
+
+        // Move knob visually
+        knob.style.transform = `translate(${dx}px, ${dy}px)`;
+
+        // Clear all direction keys
+        keysHeld.delete('arrowup');
+        keysHeld.delete('arrowdown');
+        keysHeld.delete('arrowleft');
+        keysHeld.delete('arrowright');
+
+        // Only register input if outside deadzone
+        if (distance > deadzone) {
+            // Calculate angle (0 = right, PI/2 = down, PI = left, -PI/2 = up)
+            const angle = Math.atan2(dy, dx);
+
+            // 8-direction detection with 45-degree zones
+            // Each zone spans 45 degrees (PI/4 radians)
+            const zone = Math.round(angle / (Math.PI / 4));
+
+            switch (zone) {
+                case 0: // Right
+                    keysHeld.add('arrowright');
+                    break;
+                case 1: // Down-Right
+                    keysHeld.add('arrowright');
+                    keysHeld.add('arrowdown');
+                    break;
+                case 2: // Down
+                    keysHeld.add('arrowdown');
+                    break;
+                case 3: // Down-Left
+                    keysHeld.add('arrowleft');
+                    keysHeld.add('arrowdown');
+                    break;
+                case 4: // Left
+                case -4: // Left (wraps around)
+                    keysHeld.add('arrowleft');
+                    break;
+                case -3: // Up-Left
+                    keysHeld.add('arrowleft');
+                    keysHeld.add('arrowup');
+                    break;
+                case -2: // Up
+                    keysHeld.add('arrowup');
+                    break;
+                case -1: // Up-Right
+                    keysHeld.add('arrowright');
+                    keysHeld.add('arrowup');
+                    break;
+            }
+        }
+    }
+
+    function resetJoystick() {
+        knob.style.transform = 'translate(0, 0)';
+        knob.classList.remove('active');
+        joystickActive = false;
+        joystickTouchId = null;
+
+        // Clear all direction keys
+        keysHeld.delete('arrowup');
+        keysHeld.delete('arrowdown');
+        keysHeld.delete('arrowleft');
+        keysHeld.delete('arrowright');
+    }
+
+    // Touch start on joystick
+    container.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        if (joystickActive) return; // Already tracking a touch
+
+        const touch = e.changedTouches[0];
+        joystickTouchId = touch.identifier;
+        joystickActive = true;
+        knob.classList.add('active');
+
+        updateJoystick(touch.clientX, touch.clientY);
+    }, { passive: false });
+
+    // Touch move - use document to track even if finger moves outside joystick
+    document.addEventListener('touchmove', (e) => {
+        if (!joystickActive) return;
+
+        // Find our tracked touch
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const touch = e.changedTouches[i];
+            if (touch.identifier === joystickTouchId) {
+                e.preventDefault();
+                updateJoystick(touch.clientX, touch.clientY);
+                break;
+            }
+        }
+    }, { passive: false });
+
+    // Touch end
+    document.addEventListener('touchend', (e) => {
+        if (!joystickActive) return;
+
+        // Check if our tracked touch ended
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            if (e.changedTouches[i].identifier === joystickTouchId) {
+                resetJoystick();
+                break;
+            }
+        }
+    }, { passive: false });
+
+    // Touch cancel
+    document.addEventListener('touchcancel', (e) => {
+        if (!joystickActive) return;
+
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            if (e.changedTouches[i].identifier === joystickTouchId) {
+                resetJoystick();
+                break;
+            }
+        }
+    }, { passive: false });
 }
 
 /**
