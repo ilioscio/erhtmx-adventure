@@ -8,7 +8,6 @@
 }
 
 body {
-    background-color: #1a1a2e;
     color: #eee;
     font-family: 'Courier New', Courier, monospace;
     min-height: 100vh;
@@ -17,6 +16,8 @@ body {
     justify-content: center;
     align-items: center;
 }
+
+html, body { background-color: #1a1a2e; }
 
 /* Game Container */
 #game-container {
@@ -260,6 +261,7 @@ body {
     border: 4px solid #0f3460;
     border-radius: 12px;
     padding: 30px 40px;
+    margin: 20px 0;
     max-width: 700px;
     width: 90%;
 }
@@ -522,7 +524,7 @@ body {
 
 @media (max-width: 648px) {
     body {
-        align-items: flex-start;
+        align-items: center;
     }
 
     /* Game Container - full width, no side borders */
