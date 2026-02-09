@@ -1134,17 +1134,18 @@ function dragonFireBreath(dragon) {
 
 /**
  * Get speed for enemy type.
+ * Non-dragon enemies reduced by 50% for better mobile control.
  */
 function getEnemySpeed(type) {
     switch (type) {
-        case 'bat': return 3;
-        case 'ghost': return 2.5;
-        case 'slime': return 1.5;
-        case 'skeleton': return 2;
-        case 'demon': return 2;
-        case 'spider': return 3;
-        case 'dragon': return 1;
-        default: return 2;
+        case 'bat': return 1.5;
+        case 'ghost': return 1.25;
+        case 'slime': return 0.75;
+        case 'skeleton': return 1;
+        case 'demon': return 1;
+        case 'spider': return 1.5;
+        case 'dragon': return 1; // Unchanged
+        default: return 1;
     }
 }
 
