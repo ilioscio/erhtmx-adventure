@@ -85,12 +85,12 @@ render_create_page(BasePath) ->
 <head>
     <meta charset=\"UTF-8\">
     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
-    <title>Create Character - ERHTMX Adventure</title>
+    <title>Create Character - Adventure Slog</title>
     <link rel=\"stylesheet\" href=\"">>, BasePath, <<"/static/style.css\">
 </head>
 <body class=\"create-page\">
     <div id=\"create-container\">
-        <h1>ERHTMX Adventure</h1>
+        <h1>Adventure Slog</h1>
         <h2>Create Your Character</h2>
 
         <form method=\"POST\" action=\"">>, BasePath, <<"/create\" id=\"create-form\">

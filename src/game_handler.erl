@@ -113,7 +113,7 @@ render_game_page(GameState) ->
 <head>
     <meta charset=\"UTF-8\">
     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
-    <title>ERHTMX Adventure</title>
+    <title>Adventure Slog</title>
     <script src=\"https://unpkg.com/htmx.org@1.9.10\"></script>
     <link rel=\"stylesheet\" href=\"">>, BasePath, <<"/static/style.css\">
 </head>

@@ -1,7 +1,7 @@
 
 {
-  description = "ERHTMX Adventure - An Erlang + HTMX + Canvas RPG Game";
-  
+  description = "Adventure Slog - An Erlang + HTMX + Canvas RPG Game";
+
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05";
     flake-utils.url = "github:numtide/flake-utils";
@@ -46,7 +46,7 @@
 
           in stdenv.mkDerivation {
             pname = "erhtmx-adventure";
-            version = "0.1.1";
+            version = "0.2.0";
 
             src = self;
 
