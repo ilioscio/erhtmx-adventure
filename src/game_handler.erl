@@ -178,7 +178,7 @@ render_game_page(GameState) ->
 
             <!-- Pause Button (Center) -->
             <div class=\"pause-container\">
-                <button class=\"gamepad-btn pause-btn\" data-key=\"p\">&#9616;&#9616;</button>
+                <button class=\"gamepad-btn pause-btn\" data-key=\"p\">P</button>
             </div>
 
             <!-- A/B Buttons (Right side) -->
