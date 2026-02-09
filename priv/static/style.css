@@ -516,6 +516,7 @@ body {
 /* ========================================
    MOBILE RESPONSIVE STYLES
    Scale everything proportionally when viewport < 648px
+   Formula: calc(N * 100vw / 648) where N is the original px value
    ======================================== */
 
 @media (max-width: 648px) {
@@ -529,8 +530,8 @@ body {
         border-left: none;
         border-right: none;
         border-radius: 0;
-        /* Scale padding proportionally: 60px * (viewport / 648) */
-        padding: calc(60px * (100vw / 648px)) 0;
+        /* Scale padding proportionally: 60 * (viewport / 648) */
+        padding: calc(60 * 100vw / 648) 0;
     }
 
     /* Canvas - full width, maintain 4:3 aspect ratio */
@@ -541,121 +542,121 @@ body {
 
     /* Character Bar - scale position and sizing */
     #character-bar {
-        top: calc(8px * (100vw / 648px));
-        left: calc(8px * (100vw / 648px));
+        top: calc(8 * 100vw / 648);
+        left: calc(8 * 100vw / 648);
     }
 
     #character-bar .info-box {
-        min-width: calc(180px * (100vw / 648px));
-        padding: calc(8px * (100vw / 648px)) calc(12px * (100vw / 648px));
+        min-width: calc(180 * 100vw / 648);
+        padding: calc(8 * 100vw / 648) calc(12 * 100vw / 648);
     }
 
     .char-name {
-        font-size: calc(14px * (100vw / 648px));
-        margin-bottom: calc(2px * (100vw / 648px));
+        font-size: calc(14 * 100vw / 648);
+        margin-bottom: calc(2 * 100vw / 648);
     }
 
     .char-class {
-        font-size: calc(11px * (100vw / 648px));
-        letter-spacing: calc(1px * (100vw / 648px));
-        margin-bottom: calc(6px * (100vw / 648px));
+        font-size: calc(11 * 100vw / 648);
+        letter-spacing: calc(1 * 100vw / 648);
+        margin-bottom: calc(6 * 100vw / 648);
     }
 
     .hp-bar-container {
-        height: calc(18px * (100vw / 648px));
+        height: calc(18 * 100vw / 648);
     }
 
     .hp-text {
-        font-size: calc(11px * (100vw / 648px));
+        font-size: calc(11 * 100vw / 648);
     }
 
     /* Location Bar - scale position and sizing */
     #location-bar {
-        top: calc(8px * (100vw / 648px));
-        right: calc(8px * (100vw / 648px));
+        top: calc(8 * 100vw / 648);
+        right: calc(8 * 100vw / 648);
     }
 
     #location-bar .info-box {
-        padding: calc(8px * (100vw / 648px)) calc(12px * (100vw / 648px));
+        padding: calc(8 * 100vw / 648) calc(12 * 100vw / 648);
     }
 
     .area-name {
-        font-size: calc(14px * (100vw / 648px));
+        font-size: calc(14 * 100vw / 648);
     }
 
     .map-pos {
-        font-size: calc(11px * (100vw / 648px));
+        font-size: calc(11 * 100vw / 648);
     }
 
     /* Inventory Bar - scale everything */
     #inventory-bar {
-        bottom: calc(8px * (100vw / 648px));
+        bottom: calc(8 * 100vw / 648);
     }
 
     .inventory-container {
-        gap: calc(4px * (100vw / 648px));
-        padding: calc(6px * (100vw / 648px));
+        gap: calc(4 * 100vw / 648);
+        padding: calc(6 * 100vw / 648);
     }
 
     .inventory-slot {
-        width: calc(60px * (100vw / 648px));
-        height: calc(50px * (100vw / 648px));
+        width: calc(60 * 100vw / 648);
+        height: calc(50 * 100vw / 648);
     }
 
     .item-icon {
-        font-size: calc(20px * (100vw / 648px));
+        font-size: calc(20 * 100vw / 648);
     }
 
     .item-name {
-        font-size: calc(8px * (100vw / 648px));
-        margin-top: calc(2px * (100vw / 648px));
-        max-width: calc(56px * (100vw / 648px));
+        font-size: calc(8 * 100vw / 648);
+        margin-top: calc(2 * 100vw / 648);
+        max-width: calc(56 * 100vw / 648);
     }
 
     /* Message Display - scale position and sizing */
     #message-display {
-        bottom: calc(70px * (100vw / 648px));
-        padding: calc(8px * (100vw / 648px)) calc(16px * (100vw / 648px));
-        font-size: calc(14px * (100vw / 648px));
+        bottom: calc(70 * 100vw / 648);
+        padding: calc(8 * 100vw / 648) calc(16 * 100vw / 648);
+        font-size: calc(14 * 100vw / 648);
     }
 
     /* Pause Menu - scale text */
     #pause-menu h2 {
-        font-size: calc(36px * (100vw / 648px));
-        margin-bottom: calc(30px * (100vw / 648px));
-        letter-spacing: calc(4px * (100vw / 648px));
+        font-size: calc(36 * 100vw / 648);
+        margin-bottom: calc(30 * 100vw / 648);
+        letter-spacing: calc(4 * 100vw / 648);
     }
 
     #pause-menu .menu-buttons {
-        gap: calc(12px * (100vw / 648px));
+        gap: calc(12 * 100vw / 648);
     }
 
     #pause-menu button {
-        padding: calc(14px * (100vw / 648px)) calc(40px * (100vw / 648px));
-        font-size: calc(16px * (100vw / 648px));
-        min-width: calc(200px * (100vw / 648px));
+        padding: calc(14 * 100vw / 648) calc(40 * 100vw / 648);
+        font-size: calc(16 * 100vw / 648);
+        min-width: calc(200 * 100vw / 648);
     }
 
     #pause-menu .pause-hint {
-        margin-top: calc(30px * (100vw / 648px));
-        font-size: calc(12px * (100vw / 648px));
+        margin-top: calc(30 * 100vw / 648);
+        font-size: calc(12 * 100vw / 648);
     }
 
     /* Game Overlay - scale text */
     #game-overlay h2 {
-        font-size: calc(36px * (100vw / 648px));
-        margin-bottom: calc(20px * (100vw / 648px));
+        font-size: calc(36 * 100vw / 648);
+        margin-bottom: calc(20 * 100vw / 648);
     }
 
     #game-overlay button {
-        padding: calc(12px * (100vw / 648px)) calc(24px * (100vw / 648px));
-        font-size: calc(16px * (100vw / 648px));
-        margin: calc(5px * (100vw / 648px));
+        padding: calc(12 * 100vw / 648) calc(24 * 100vw / 648);
+        font-size: calc(16 * 100vw / 648);
+        margin: calc(5 * 100vw / 648);
     }
 
     /* Info Box base - scale padding and borders */
     .info-box {
-        padding: calc(8px * (100vw / 648px)) calc(12px * (100vw / 648px));
-        border-radius: calc(6px * (100vw / 648px));
+        padding: calc(8 * 100vw / 648) calc(12 * 100vw / 648);
+        border-radius: calc(6 * 100vw / 648);
     }
 }
