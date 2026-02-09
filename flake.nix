@@ -1,5 +1,3 @@
-{
-  description = "ERHTMX Adventure - An Erlang + HTMX + Canvas RPG Game";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05";
@@ -45,7 +43,7 @@
 
           in stdenv.mkDerivation {
             pname = "erhtmx-adventure";
-            version = "0.1.0";
+            version = "0.1.1";
 
             src = self;
 

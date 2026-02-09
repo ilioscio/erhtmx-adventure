@@ -176,9 +176,9 @@ render_game_page(GameState) ->
                 </div>
             </div>
 
-            <!-- Start Button (Center) -->
-            <div class=\"start-container\">
-                <button class=\"gamepad-btn start-btn\" data-key=\"p\">START</button>
+            <!-- Pause Button (Center) -->
+            <div class=\"pause-container\">
+                <button class=\"gamepad-btn pause-btn\" data-key=\"p\">&#9616;&#9616;</button>
             </div>
 
             <!-- A/B Buttons (Right side) -->
