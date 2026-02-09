@@ -283,6 +283,9 @@ window.addEventListener('load', () => {
     // Set up input handlers
     setupInput();
 
+    // Set up virtual gamepad for touch devices
+    setupVirtualGamepad();
+
     // Start game loop
     requestAnimationFrame(gameLoop);
 });
@@ -402,6 +405,131 @@ function setupInput() {
     window.addEventListener('keyup', (e) => {
         keysHeld.delete(e.key.toLowerCase());
     });
+}
+
+// ============================================================
+// VIRTUAL GAMEPAD
+// ============================================================
+
+let gamepadVisible = false;
+let gamepadUserToggled = false; // Track if user manually toggled
+
+/**
+ * Check if device has touch capability.
+ */
+function isTouchDevice() {
+    return ('ontouchstart' in window) ||
+           (navigator.maxTouchPoints > 0) ||
+           (navigator.msMaxTouchPoints > 0);
+}
+
+/**
+ * Set up the virtual gamepad for touch input.
+ */
+function setupVirtualGamepad() {
+    const gamepad = document.getElementById('virtual-gamepad');
+    if (!gamepad) return;
+
+    // Get all gamepad buttons
+    const buttons = gamepad.querySelectorAll('[data-key]');
+
+    buttons.forEach(button => {
+        const key = button.getAttribute('data-key');
+
+        // Handle touch start - add key to keysHeld
+        button.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            keysHeld.add(key);
+            button.classList.add('pressed');
+
+            // Trigger immediate actions for certain keys
+            if (key === 'p') {
+                togglePauseMenu();
+            } else if (key === ' ' && !gamePaused) {
+                attack();
+            }
+        }, { passive: false });
+
+        // Handle touch end - remove key from keysHeld
+        button.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            keysHeld.delete(key);
+            button.classList.remove('pressed');
+        }, { passive: false });
+
+        // Handle touch cancel (e.g., finger slides off)
+        button.addEventListener('touchcancel', (e) => {
+            e.preventDefault();
+            keysHeld.delete(key);
+            button.classList.remove('pressed');
+        }, { passive: false });
+
+        // Handle touch move to support sliding between d-pad buttons
+        button.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+        }, { passive: false });
+    });
+
+    // Handle multi-touch for d-pad (diagonal movement)
+    const dpadButtons = gamepad.querySelectorAll('.dpad-btn[data-key]');
+    gamepad.addEventListener('touchmove', (e) => {
+        // Clear all d-pad keys first, then re-add based on current touches
+        const dpadKeys = ['arrowup', 'arrowdown', 'arrowleft', 'arrowright'];
+        dpadKeys.forEach(k => keysHeld.delete(k));
+        dpadButtons.forEach(btn => btn.classList.remove('pressed'));
+
+        // Check each touch point
+        Array.from(e.touches).forEach(touch => {
+            const element = document.elementFromPoint(touch.clientX, touch.clientY);
+            if (element && element.classList.contains('dpad-btn')) {
+                const key = element.getAttribute('data-key');
+                if (key) {
+                    keysHeld.add(key);
+                    element.classList.add('pressed');
+                }
+            }
+        });
+    }, { passive: false });
+
+    // Auto-show gamepad on touch devices (unless user manually hid it)
+    if (isTouchDevice() && !gamepadUserToggled) {
+        showGamepad();
+    }
+}
+
+/**
+ * Show the virtual gamepad.
+ */
+function showGamepad() {
+    const gamepad = document.getElementById('virtual-gamepad');
+    if (gamepad) {
+        gamepad.classList.remove('hidden');
+        gamepadVisible = true;
+    }
+}
+
+/**
+ * Hide the virtual gamepad.
+ */
+function hideGamepad() {
+    const gamepad = document.getElementById('virtual-gamepad');
+    if (gamepad) {
+        gamepad.classList.add('hidden');
+        gamepadVisible = false;
+    }
+}
+
+/**
+ * Toggle the virtual gamepad visibility.
+ * Called from pause menu button.
+ */
+function toggleGamepad() {
+    gamepadUserToggled = true; // User explicitly toggled
+    if (gamepadVisible) {
+        hideGamepad();
+    } else {
+        showGamepad();
+    }
 }
 
 /**

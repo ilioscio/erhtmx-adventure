@@ -660,3 +660,269 @@ body {
         border-radius: calc(6 * 100vw / 648);
     }
 }
+
+/* ========================================
+   VIRTUAL GAMEPAD (NES-style)
+   ======================================== */
+
+#virtual-gamepad {
+    width: 100%;
+    max-width: 648px;
+    margin: 0 auto;
+    padding: 16px;
+    background-color: #1a1a2e;
+    touch-action: none; /* Prevent scrolling while using gamepad */
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+#virtual-gamepad.hidden {
+    display: none;
+}
+
+.gamepad-body {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: linear-gradient(180deg, #3a3a4a 0%, #2a2a3a 50%, #1a1a2a 100%);
+    border: 3px solid #0f0f1f;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow:
+        inset 0 2px 4px rgba(255,255,255,0.1),
+        0 4px 8px rgba(0,0,0,0.5);
+}
+
+/* D-Pad Container */
+.dpad-container {
+    display: grid;
+    grid-template-columns: repeat(3, 44px);
+    grid-template-rows: repeat(3, 44px);
+    gap: 0;
+}
+
+.dpad-btn {
+    background-color: #1a1a2a;
+    border: 2px solid #0a0a1a;
+    cursor: pointer;
+    touch-action: none;
+}
+
+.dpad-btn:active,
+.dpad-btn.pressed {
+    background-color: #2a2a4a;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
+}
+
+.dpad-up {
+    grid-column: 2;
+    grid-row: 1;
+    border-radius: 4px 4px 0 0;
+}
+
+.dpad-down {
+    grid-column: 2;
+    grid-row: 3;
+    border-radius: 0 0 4px 4px;
+}
+
+.dpad-left {
+    grid-column: 1;
+    grid-row: 2;
+    border-radius: 4px 0 0 4px;
+}
+
+.dpad-right {
+    grid-column: 3;
+    grid-row: 2;
+    border-radius: 0 4px 4px 0;
+}
+
+.dpad-center {
+    grid-column: 2;
+    grid-row: 2;
+    background-color: #0a0a1a;
+    pointer-events: none;
+}
+
+/* D-Pad directional arrows */
+.dpad-up::after,
+.dpad-down::after,
+.dpad-left::after,
+.dpad-right::after {
+    content: '';
+    display: block;
+    width: 0;
+    height: 0;
+    margin: auto;
+    position: relative;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.dpad-up::after {
+    border-left: 8px solid transparent;
+    border-right: 8px solid transparent;
+    border-bottom: 10px solid #666;
+    top: 35%;
+}
+
+.dpad-down::after {
+    border-left: 8px solid transparent;
+    border-right: 8px solid transparent;
+    border-top: 10px solid #666;
+    top: 65%;
+}
+
+.dpad-left::after {
+    border-top: 8px solid transparent;
+    border-bottom: 8px solid transparent;
+    border-right: 10px solid #666;
+    margin-left: 10px;
+}
+
+.dpad-right::after {
+    border-top: 8px solid transparent;
+    border-bottom: 8px solid transparent;
+    border-left: 10px solid #666;
+    margin-left: 20px;
+}
+
+/* Start Button Container */
+.start-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.gamepad-btn.start-btn {
+    width: 60px;
+    height: 24px;
+    background: linear-gradient(180deg, #4a4a5a 0%, #3a3a4a 100%);
+    border: 2px solid #2a2a3a;
+    border-radius: 12px;
+    color: #888;
+    font-size: 9px;
+    font-family: inherit;
+    font-weight: bold;
+    letter-spacing: 1px;
+    cursor: pointer;
+    transform: rotate(-20deg);
+    touch-action: none;
+}
+
+.gamepad-btn.start-btn:active,
+.gamepad-btn.start-btn.pressed {
+    background: linear-gradient(180deg, #3a3a4a 0%, #2a2a3a 100%);
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
+}
+
+/* A/B Button Container */
+.ab-container {
+    display: flex;
+    gap: 16px;
+    transform: rotate(-20deg);
+}
+
+.gamepad-btn.a-btn,
+.gamepad-btn.b-btn {
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    border: 3px solid #1a0a0a;
+    font-family: inherit;
+    font-size: 16px;
+    font-weight: bold;
+    color: #fff;
+    cursor: pointer;
+    touch-action: none;
+    box-shadow:
+        0 4px 0 rgba(0,0,0,0.3),
+        inset 0 2px 4px rgba(255,255,255,0.2);
+}
+
+.gamepad-btn.b-btn {
+    background: linear-gradient(180deg, #e94560 0%, #a31545 100%);
+}
+
+.gamepad-btn.a-btn {
+    background: linear-gradient(180deg, #e94560 0%, #a31545 100%);
+}
+
+.gamepad-btn.a-btn:active,
+.gamepad-btn.a-btn.pressed,
+.gamepad-btn.b-btn:active,
+.gamepad-btn.b-btn.pressed {
+    box-shadow:
+        0 2px 0 rgba(0,0,0,0.3),
+        inset 0 2px 4px rgba(0,0,0,0.3);
+    transform: translateY(2px);
+}
+
+/* Gamepad toggle button in pause menu */
+#pause-menu button.gamepad-toggle-btn {
+    border-color: #9966ff;
+}
+
+/* ========================================
+   VIRTUAL GAMEPAD - MOBILE RESPONSIVE
+   ======================================== */
+
+@media (max-width: 648px) {
+    #virtual-gamepad {
+        width: 100vw;
+        padding: calc(16 * 100vw / 648);
+    }
+
+    .gamepad-body {
+        padding: calc(20 * 100vw / 648);
+        border-radius: calc(12 * 100vw / 648);
+    }
+
+    .dpad-container {
+        grid-template-columns: repeat(3, calc(44 * 100vw / 648));
+        grid-template-rows: repeat(3, calc(44 * 100vw / 648));
+    }
+
+    .gamepad-btn.start-btn {
+        width: calc(60 * 100vw / 648);
+        height: calc(24 * 100vw / 648);
+        font-size: calc(9 * 100vw / 648);
+    }
+
+    .ab-container {
+        gap: calc(16 * 100vw / 648);
+    }
+
+    .gamepad-btn.a-btn,
+    .gamepad-btn.b-btn {
+        width: calc(52 * 100vw / 648);
+        height: calc(52 * 100vw / 648);
+        font-size: calc(16 * 100vw / 648);
+    }
+
+    .dpad-up::after {
+        border-left-width: calc(8 * 100vw / 648);
+        border-right-width: calc(8 * 100vw / 648);
+        border-bottom-width: calc(10 * 100vw / 648);
+    }
+
+    .dpad-down::after {
+        border-left-width: calc(8 * 100vw / 648);
+        border-right-width: calc(8 * 100vw / 648);
+        border-top-width: calc(10 * 100vw / 648);
+    }
+
+    .dpad-left::after {
+        border-top-width: calc(8 * 100vw / 648);
+        border-bottom-width: calc(8 * 100vw / 648);
+        border-right-width: calc(10 * 100vw / 648);
+    }
+
+    .dpad-right::after {
+        border-top-width: calc(8 * 100vw / 648);
+        border-bottom-width: calc(8 * 100vw / 648);
+        border-left-width: calc(10 * 100vw / 648);
+    }
+}

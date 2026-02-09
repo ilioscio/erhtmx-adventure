@@ -158,10 +158,36 @@ render_game_page(GameState) ->
             <h2>Paused</h2>
             <div class=\"menu-buttons\">
                 <button class=\"resume-btn\" onclick=\"resumeGame()\">Resume</button>
+                <button class=\"gamepad-toggle-btn\" onclick=\"toggleGamepad()\">Toggle Gamepad</button>
                 <button class=\"restart-btn\" onclick=\"restartGame()\">Restart</button>
                 <button class=\"quit-btn\" onclick=\"quitGame()\">Quit</button>
             </div>
             <p class=\"pause-hint\">Press P or ESC to resume</p>
+        </div>
+    </div>
+
+    <!-- Virtual Gamepad (for touch devices) -->
+    <div id=\"virtual-gamepad\" class=\"hidden\">
+        <div class=\"gamepad-body\">
+            <!-- D-Pad (Left side) -->
+            <div class=\"dpad-container\">
+                <button class=\"dpad-btn dpad-up\" data-key=\"arrowup\"></button>
+                <button class=\"dpad-btn dpad-left\" data-key=\"arrowleft\"></button>
+                <button class=\"dpad-btn dpad-center\"></button>
+                <button class=\"dpad-btn dpad-right\" data-key=\"arrowright\"></button>
+                <button class=\"dpad-btn dpad-down\" data-key=\"arrowdown\"></button>
+            </div>
+
+            <!-- Start Button (Center) -->
+            <div class=\"start-container\">
+                <button class=\"gamepad-btn start-btn\" data-key=\"p\">START</button>
+            </div>
+
+            <!-- A/B Buttons (Right side) -->
+            <div class=\"ab-container\">
+                <button class=\"gamepad-btn b-btn\" data-key=\" \">B</button>
+                <button class=\"gamepad-btn a-btn\" data-key=\"e\">A</button>
+            </div>
         </div>
     </div>
 
