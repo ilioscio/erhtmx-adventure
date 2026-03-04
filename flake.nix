@@ -74,6 +74,17 @@
                 done
               done
 
+              # Disable distributed Erlang - not needed for single-node deployment.
+              # -start_epmd false: don't start the port mapper daemon
+              # -dist_listen false: don't open a listening socket for distribution
+              cat > vm.args << 'VM_ARGS'
+-sname erhtmx_adventure
+-setcookie erhtmx_adventure
+-start_epmd false
+-dist_listen false
++C multi_time_warp
+VM_ARGS
+
               # Remove the deps from rebar.config to prevent rebar3 from checking them
               # We manually provide the built deps
               cat > rebar.config.new << 'REBAR_CONFIG'
@@ -89,7 +100,8 @@
     {dev_mode, false},
     {include_erts, true},
     {extended_start_script, true},
-    {lib_dirs, ["_build/prod/lib"]}
+    {lib_dirs, ["_build/prod/lib"]},
+    {vm_args, "vm.args"}
 ]}.
 {profiles, [
     {prod, [
